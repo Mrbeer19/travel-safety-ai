@@ -1,0 +1,60 @@
+name: ci
+
+# CI พื้นฐาน: รันทุกครั้งที่เปิด PR เข้า main หรือ dev และทุกครั้งที่ push ขึ้น feature/*
+on:
+  pull_request:
+    branches:
+      - main
+      - dev
+  push:
+    branches:
+      - 'feature/**'
+
+jobs:
+  ci:
+    name: ci
+    runs-on: ubuntu-latest
+    steps:
+      - name: ดึงโค้ดออกมา
+        uses: actions/checkout@v4
+
+      - name: ติดตั้ง Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: ตรวจไฟล์บังคับว่ามีครบ
+        run: |
+          test -f README.md || { echo "::error::ไม่มีไฟล์ README.md"; exit 1; }
+          test -f .gitignore || { echo "::error::ไม่มีไฟล์ .gitignore"; exit 1; }
+          echo "ไฟล์พื้นฐานครบ"
+
+      - name: กันไฟล์ความลับหลุดขึ้น repo
+        run: |
+          if git ls-files | grep -E '(^|/)\.env$|\.pem$|\.key$'; then
+            echo "::error::พบไฟล์ความลับถูก commit ขึ้นมา กรุณาลบออกและใส่ใน .gitignore"
+            exit 1
+          fi
+          echo "ไม่พบไฟล์ความลับ"
+
+      - name: ตรวจไวยากรณ์ไฟล์ Python ทั้งหมด
+        run: |
+          FILES=$(git ls-files '*.py')
+          if [ -z "$FILES" ]; then
+            echo "ยังไม่มีไฟล์ .py ข้ามขั้นตอนนี้"
+          else
+            python -m compileall -q $FILES
+            echo "ไฟล์ Python ผ่านการตรวจไวยากรณ์"
+          fi
+
+      - name: ติดตั้ง dependency และรันเทส (ถ้ามี)
+        run: |
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          fi
+          if [ -d tests ]; then
+            pip install pytest
+            pytest -q
+          else
+            echo "ยังไม่มีโฟลเดอร์ tests ข้ามการรันเทส"
+          fi
