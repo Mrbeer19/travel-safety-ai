@@ -12,7 +12,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.canonical import RECORD_MODELS, RecordModel
-from app.pipeline.normalize import TRANSFORM_VERSION, geometry_of, normalize_record
+from app.pipeline.normalize import TRANSFORM_VERSION, geometry_of, normalize_record, record_sources
 from app.repositories.models import CanonicalRecord, Quarantine
 from app.repositories.snapshot_repo import canonical_hash
 
@@ -57,12 +57,13 @@ class CanonicalRepository:
             await self.session.flush()
             return None
         content_hash = payload.pop("canonical_content_hash")
+        source = record_sources(record)[0]
         valid_at: datetime | None = getattr(record, "valid_at", None)
         if valid_at is None:
             valid_at = getattr(record, "effective_at", None)
         key = {
             "record_type": kind,
-            "source_id": record.source.source_id,
+            "source_id": source.source_id,
             "content_hash": content_hash,
         }
         await self.session.execute(
@@ -70,13 +71,13 @@ class CanonicalRepository:
             .values(
                 id=uuid4(),
                 **key,
-                schema_version=record.source.schema_version,
+                schema_version=source.schema_version,
                 transform_version=TRANSFORM_VERSION,
                 payload_json=payload,
                 lineage_json=lineage,
                 geometry=_geometry_wkt(record),
                 valid_at=valid_at,
-                fetched_at=record.source.fetched_at,
+                fetched_at=source.fetched_at,
             )
             .on_conflict_do_nothing(constraint="uq_canonical_version")
         )

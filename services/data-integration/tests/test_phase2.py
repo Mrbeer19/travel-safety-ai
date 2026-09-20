@@ -6,7 +6,9 @@ Only timestamp/coordinates/magnitude/title are copied from that response.
 """
 
 import copy
+import json
 from datetime import UTC, datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 from sqlalchemy import func, select
@@ -96,13 +98,15 @@ def test_raw_route_to_plural_contract_provenance() -> None:
             "exposure": None,
             "risk_level": "UNKNOWN",
             "quality": {"status": "FRESH", "flags": ["INCOMPLETE"]},
-            "source": {
-                "source_id": "openrouteservice:captured-route",
-                "provider": "openrouteservice",
-                "authority": "LICENSED_PROVIDER",
-                "fetched_at": "2026-09-20T07:50:14Z",
-                "schema_version": "1.0.0",
-            },
+            "sources": [
+                {
+                    "source_id": "openrouteservice:captured-route",
+                    "provider": "openrouteservice",
+                    "authority": "LICENSED_PROVIDER",
+                    "fetched_at": "2026-09-20T07:50:14Z",
+                    "schema_version": "1.0.0",
+                }
+            ],
         }
     )
     output = route_for_contract(route)
@@ -110,6 +114,33 @@ def test_raw_route_to_plural_contract_provenance() -> None:
     assert len(output["sources"]) == 1
     assert output["sources"][0]["provider"] == "openrouteservice"
     assert output["exposure"] is None and output["risk_level"] == "UNKNOWN"
+    payload, lineage = normalize_record(route)
+    assert payload["sources"] == output["sources"]
+    assert lineage["distance_m"]["source_ids"] == ["openrouteservice:captured-route"]
+
+
+async def test_current_m04_route_sample_ingests_with_all_sources(isolated_database: str) -> None:
+    """M04 handoff route from ORS real-sanitized capture, merged in main commit 3353f15."""
+    sample = json.loads(
+        (Path(__file__).parent / "fixtures" / "m04-route-candidates.json").read_text(
+            encoding="utf-8"
+        )
+    )["records"][0]
+    assert sample["sources"] and "source" not in sample
+    engine = create_async_engine(isolated_database)
+    try:
+        async with AsyncSession(engine, expire_on_commit=False) as session:
+            stored = await CanonicalRepository(session).ingest("route", sample)
+            await session.commit()
+            assert stored is not None
+            assert (
+                stored.payload_json["sources"][0]["source_id"] == sample["sources"][0]["source_id"]
+            )
+            assert stored.lineage_json["distance_m"]["source_ids"] == [
+                sample["sources"][0]["source_id"]
+            ]
+    finally:
+        await engine.dispose()
 
 
 def test_transit_stop_keys_preserve_captured_names() -> None:
@@ -176,7 +207,13 @@ async def test_canonical_upsert_keeps_lineage_and_geometry(isolated_database: st
                 "geometry.coordinates.0"
             )
             assert first.lineage_json["canonical_severity"]["source_path"] == "severity"
-            assert (await session.scalar(select(func.count()).select_from(CanonicalRecord))) == 1
+            assert (
+                await session.scalar(
+                    select(func.count())
+                    .select_from(CanonicalRecord)
+                    .where(CanonicalRecord.record_type == "disaster")
+                )
+            ) == 1
     finally:
         await engine.dispose()
 

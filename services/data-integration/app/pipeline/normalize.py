@@ -108,10 +108,12 @@ def geometry_of(record: RecordModel) -> dict | None:
 
 
 def route_for_contract(route: RouteCandidate) -> dict:
-    """Adapt one raw provider route to the plural-provenance output shape."""
-    payload = canonicalize_value(route.model_dump(mode="python"))
-    payload["sources"] = [payload.pop("source")]
-    return payload
+    """Preserve the producer's plural provenance in the shared route shape."""
+    return canonicalize_value(route.model_dump(mode="python"))
+
+
+def record_sources(record: RecordModel) -> list:
+    return record.sources if isinstance(record, RouteCandidate) else [record.source]
 
 
 def transform_checksum() -> str:
@@ -125,7 +127,7 @@ def transform_checksum() -> str:
 
 def normalize_record(record: RecordModel) -> tuple[dict, dict]:
     payload = canonicalize_value(record.model_dump(mode="python"))
-    source = record.source
+    sources = record_sources(record)
     geometry = geometry_of(record)
     if geometry is not None:
         payload["canonical_geometry"] = geometry
@@ -153,7 +155,8 @@ def normalize_record(record: RecordModel) -> tuple[dict, dict]:
 
     lineage = {
         field: {
-            "source_id": source.source_id,
+            "source_id": sources[0].source_id,
+            "source_ids": [source.source_id for source in sources],
             "source_path": source_path(field),
             "transform_version": TRANSFORM_VERSION,
             "transform_checksum": checksum,

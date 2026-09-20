@@ -1,9 +1,4 @@
-"""Strict module 04 input shapes for the Phase 2 storage boundary.
-
-These describe the producer's actual wire payload. The shared route output
-contract uses ``sources[]``; the module 04 input currently carries ``source``.
-The input distinction is retained until the producer/consumer contract is locked.
-"""
+"""Strict module 04 input shapes for the Phase 2 storage boundary."""
 
 from typing import Literal, Self
 
@@ -182,7 +177,7 @@ class RouteCandidate(StrictRecord):
     exposure: None = None
     risk_level: Literal["UNKNOWN"]
     quality: DataQuality
-    source: SourceProvenance
+    sources: list[SourceProvenance] = Field(min_length=1)
     bbox: tuple[FiniteFloat, FiniteFloat, FiniteFloat, FiniteFloat] | None = None
 
 
