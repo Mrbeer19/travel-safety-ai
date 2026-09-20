@@ -74,6 +74,15 @@ def normalize_place(value: str | None) -> str | None:
     return " ".join(value.split()).casefold() if value is not None else None
 
 
+def normalize_country_code(value: str | None) -> str | None:
+    if value is None:
+        return None
+    code = value.strip().upper()
+    if len(code) != 2 or not code.isascii() or not code.isalpha():
+        raise ValueError("country code must be two ASCII letters")
+    return code
+
+
 def normalize_severity(value: str | None) -> str:
     """Preserve an approved canonical value; unknown provider scales stay UNKNOWN."""
     return value if value in SEVERITIES else "UNKNOWN"
@@ -108,7 +117,8 @@ def route_for_contract(route: RouteCandidate) -> dict:
 def transform_checksum() -> str:
     source = inspect.getsource(convert_unit) + inspect.getsource(utc_time)
     source += inspect.getsource(canonicalize_value) + inspect.getsource(field_paths)
-    source += inspect.getsource(normalize_place) + inspect.getsource(normalize_severity)
+    source += inspect.getsource(normalize_place) + inspect.getsource(normalize_country_code)
+    source += inspect.getsource(normalize_severity)
     source += inspect.getsource(normalize_line) + inspect.getsource(normalize_record)
     return "sha256:" + hashlib.sha256(source.encode()).hexdigest()
 
@@ -123,11 +133,16 @@ def normalize_record(record: RecordModel) -> tuple[dict, dict]:
         payload["canonical_severity"] = normalize_severity(record.severity)
     if hasattr(record, "name"):
         payload["canonical_place_key"] = normalize_place(record.name)
+    if hasattr(record, "origin_stop"):
+        payload["canonical_origin_stop_key"] = normalize_place(record.origin_stop.name)
+        payload["canonical_destination_stop_key"] = normalize_place(record.destination_stop.name)
     checksum = transform_checksum()
     derived_paths = {
         "canonical_geometry": "geometry" if hasattr(record, "geometry") else "location",
         "canonical_severity": "severity",
         "canonical_place_key": "name",
+        "canonical_origin_stop_key": "origin_stop.name",
+        "canonical_destination_stop_key": "destination_stop.name",
     }
 
     def source_path(field: str) -> str:

@@ -12,12 +12,14 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
-from app.domain.canonical import RouteCandidate
+from app.domain.canonical import RouteCandidate, TransportStatus
 from app.pipeline.normalize import (
     canonicalize_value,
     convert_unit,
     field_paths,
+    normalize_country_code,
     normalize_place,
+    normalize_record,
     normalize_severity,
     route_for_contract,
     transform_checksum,
@@ -59,6 +61,10 @@ def test_pure_transforms_preserve_null_and_zero() -> None:
     assert convert_unit(0, "mph", "kmh") == 0
     assert convert_unit(32, "fahrenheit", "celsius") == 0
     assert normalize_place("  New   York  ") == "new york"
+    assert normalize_country_code(" th ") == "TH"
+    assert normalize_country_code(None) is None
+    with pytest.raises(ValueError):
+        normalize_country_code("Thailand")
     assert normalize_severity("red") == "UNKNOWN"
     assert normalize_severity("SEVERE") == "SEVERE"
     nested = {"segments": [{"departure_time": datetime(2026, 1, 1, 7, tzinfo=timezone_bkk)}]}
@@ -104,6 +110,31 @@ def test_raw_route_to_plural_contract_provenance() -> None:
     assert len(output["sources"]) == 1
     assert output["sources"][0]["provider"] == "openrouteservice"
     assert output["exposure"] is None and output["risk_level"] == "UNKNOWN"
+
+
+def test_transit_stop_keys_preserve_captured_names() -> None:
+    """MTA static GTFS HTTP 200 capture, 2026-09-20T13:33:21Z; module 04 manifest."""
+    record = TransportStatus.model_validate(
+        {
+            "id": "mta:A02N-A03N",
+            "mode": "TRAIN",
+            "status": "UNKNOWN",
+            "origin_stop": {"stop_id": "A02N", "name": "Inwood-207 St"},
+            "destination_stop": {"stop_id": "A03N", "name": "Dyckman St"},
+            "quality": {"status": "UNAVAILABLE", "flags": ["MISSING"]},
+            "source": {
+                "source_id": "mta:static:A02N-A03N",
+                "provider": "mta",
+                "authority": "OFFICIAL",
+                "fetched_at": "2026-09-20T13:33:21Z",
+                "schema_version": "1.0.0",
+            },
+        }
+    )
+    payload, lineage = normalize_record(record)
+    assert payload["origin_stop"]["name"] == "Inwood-207 St"
+    assert payload["canonical_origin_stop_key"] == "inwood-207 st"
+    assert lineage["canonical_destination_stop_key"]["source_path"] == "destination_stop.name"
 
 
 @pytest.mark.parametrize(
