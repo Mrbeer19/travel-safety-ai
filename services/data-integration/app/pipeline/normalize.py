@@ -109,7 +109,7 @@ def transform_checksum() -> str:
     source = inspect.getsource(convert_unit) + inspect.getsource(utc_time)
     source += inspect.getsource(canonicalize_value) + inspect.getsource(field_paths)
     source += inspect.getsource(normalize_place) + inspect.getsource(normalize_severity)
-    source += inspect.getsource(normalize_line)
+    source += inspect.getsource(normalize_line) + inspect.getsource(normalize_record)
     return "sha256:" + hashlib.sha256(source.encode()).hexdigest()
 
 
@@ -124,10 +124,22 @@ def normalize_record(record: RecordModel) -> tuple[dict, dict]:
     if hasattr(record, "name"):
         payload["canonical_place_key"] = normalize_place(record.name)
     checksum = transform_checksum()
+    derived_paths = {
+        "canonical_geometry": "geometry" if hasattr(record, "geometry") else "location",
+        "canonical_severity": "severity",
+        "canonical_place_key": "name",
+    }
+
+    def source_path(field: str) -> str:
+        for derived, origin in derived_paths.items():
+            if field == derived or field.startswith(f"{derived}."):
+                return origin + field[len(derived) :]
+        return field
+
     lineage = {
         field: {
             "source_id": source.source_id,
-            "source_path": field,
+            "source_path": source_path(field),
             "transform_version": TRANSFORM_VERSION,
             "transform_checksum": checksum,
         }

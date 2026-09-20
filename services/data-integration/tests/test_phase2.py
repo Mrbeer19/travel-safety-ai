@@ -141,6 +141,10 @@ async def test_canonical_upsert_keeps_lineage_and_geometry(isolated_database: st
             assert first.id == second.id
             assert first.payload_json["canonical_geometry"]["coordinates"] == [-171.3756, 52.8594]
             assert first.lineage_json["magnitude"]["source_id"] == "usgs:us7000ti1p"
+            assert first.lineage_json["canonical_geometry.coordinates.0"]["source_path"] == (
+                "geometry.coordinates.0"
+            )
+            assert first.lineage_json["canonical_severity"]["source_path"] == "severity"
             assert (await session.scalar(select(func.count()).select_from(CanonicalRecord))) == 1
     finally:
         await engine.dispose()
