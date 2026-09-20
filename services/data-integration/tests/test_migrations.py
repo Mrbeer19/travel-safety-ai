@@ -32,6 +32,16 @@ async def test_fresh_migration_and_spatial_index(isolated_database: str) -> None
                 )
             ).scalar_one()
             assert "gist" in index.lower()
+            geography_index = (
+                await connection.execute(
+                    text("""
+                    SELECT indexdef FROM pg_indexes
+                    WHERE schemaname='integration' AND indexname='ix_canonical_geography'
+                """)
+                )
+            ).scalar_one()
+            assert "gist" in geography_index.lower()
+            assert "geography" in geography_index.lower()
             assert (
                 await connection.execute(
                     text("""
