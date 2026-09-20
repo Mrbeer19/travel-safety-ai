@@ -1,6 +1,7 @@
 """PostGIS geography corridor queries with explicit temporal bounds."""
 
 import json
+from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
 
@@ -8,6 +9,25 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.pipeline.corridor import RouteSample, split_dateline
+
+
+@dataclass(frozen=True)
+class GeometryHealth:
+    valid: bool
+    reason: str
+
+
+async def geometry_health(session: AsyncSession, geometry: dict) -> GeometryHealth:
+    """Ask PostGIS whether a sourced geometry is safe for spatial predicates."""
+    result = await session.execute(
+        text("""
+            SELECT ST_IsValid(shape), ST_IsValidReason(shape)
+            FROM (SELECT ST_GeomFromGeoJSON(:geometry) AS shape) AS candidate
+        """),
+        {"geometry": json.dumps(geometry, separators=(",", ":"))},
+    )
+    valid, reason = result.one()
+    return GeometryHealth(bool(valid), str(reason))
 
 
 def corridor_geojson(samples: list[RouteSample]) -> str:

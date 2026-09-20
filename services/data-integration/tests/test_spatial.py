@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from app.domain.canonical import GeoLineString
 from app.pipeline.corridor import sample_route
-from app.pipeline.spatial import hazard_ids_in_corridor, point_within_corridor
+from app.pipeline.spatial import geometry_health, hazard_ids_in_corridor, point_within_corridor
 from app.repositories.models import CanonicalRecord
 
 
@@ -89,5 +89,58 @@ async def test_hazard_join_requires_space_and_effective_time(isolated_database: 
             )
             assert matching_id in result
             assert future_id not in result
+    finally:
+        await engine.dispose()
+
+
+async def test_multipolygon_validity_and_self_intersection(isolated_database: str) -> None:
+    """Squares are test geometries around the captured USGS earthquake point."""
+    square = [
+        [-171.38, 52.85],
+        [-171.37, 52.85],
+        [-171.37, 52.86],
+        [-171.38, 52.86],
+        [-171.38, 52.85],
+    ]
+    valid = {"type": "MultiPolygon", "coordinates": [[square]]}
+    bowtie = {
+        "type": "Polygon",
+        "coordinates": [
+            [
+                [-171.38, 52.85],
+                [-171.37, 52.86],
+                [-171.37, 52.85],
+                [-171.38, 52.86],
+                [-171.38, 52.85],
+            ]
+        ],
+    }
+    engine = create_async_engine(isolated_database)
+    try:
+        async with AsyncSession(engine) as session:
+            assert (await geometry_health(session, valid)).valid
+            invalid = await geometry_health(session, bowtie)
+            assert not invalid.valid
+            assert "Self-intersection" in invalid.reason
+    finally:
+        await engine.dispose()
+
+
+async def test_high_latitude_dateline_geography_is_metric(isolated_database: str) -> None:
+    """Move the captured Fiji longitudes north to probe a polar edge case."""
+    line = GeoLineString(type="LineString", coordinates=[(179.57103, 85.0), (-179.82872, 85.0)])
+    samples = sample_route(
+        line,
+        departure_at=datetime(2026, 9, 20, 20, tzinfo=UTC),
+        duration_seconds=3600,
+        max_spacing_m=1000,
+    )
+    assert samples[-1].distance_m < 10_000
+    engine = create_async_engine(isolated_database)
+    try:
+        async with AsyncSession(engine) as session:
+            assert await point_within_corridor(
+                session, samples, longitude=-179.82872, latitude=85.0, radius_m=100
+            )
     finally:
         await engine.dispose()
