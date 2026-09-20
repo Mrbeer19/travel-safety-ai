@@ -6,7 +6,7 @@ captured 2026-09-19T07:45:38Z, event us7000ti1p. Mutations exercise matching rul
 
 import copy
 
-from app.pipeline.dedup import candidate_links, exact_clusters
+from app.pipeline.dedup import candidate_links, exact_clusters, resolve_field
 
 
 def captured_event() -> dict:
@@ -24,6 +24,7 @@ def captured_event() -> dict:
             "provider_record_id": "us7000ti1p",
             "published_at": "2026-09-18T14:29:54.553Z",
             "fetched_at": "2026-09-19T07:45:38Z",
+            "authority": "OFFICIAL",
         },
     }
 
@@ -86,3 +87,31 @@ def test_nearby_events_are_candidates_only() -> None:
     assert links[0].reason == "SPATIAL_TEMPORAL"
     assert not links[0].mergeable
     assert len(exact_clusters([official, nearby], links)) == 2
+
+
+def test_safety_conflict_keeps_all_evidence_and_prefers_official_source() -> None:
+    official = captured_event()
+    official["severity"] = "SEVERE"
+    community = copy.deepcopy(official)
+    community["severity"] = "MINOR"
+    community["official"] = False
+    community["source"] = {
+        **community["source"],
+        "source_id": "community:one",
+        "provider": "community",
+        "authority": "COMMUNITY",
+    }
+    result = resolve_field([community, official], "severity")
+    assert result.selected_value == "SEVERE"
+    assert result.selected_source_id == "usgs:us7000ti1p"
+    assert result.status == "CONFLICTING"
+    assert result.reason == "UNRESOLVED_SAFETY_CONFLICT"
+    assert {item.value for item in result.evidence} == {"SEVERE", "MINOR"}
+
+
+def test_agreement_and_missing_values_are_distinct() -> None:
+    first = captured_event()
+    second = copy.deepcopy(first)
+    second["source"]["source_id"] = "usgs:refetch"
+    assert resolve_field([first, second], "magnitude").reason == "SOURCE_AGREEMENT"
+    assert resolve_field([first, second], "missing_field").status == "UNAVAILABLE"

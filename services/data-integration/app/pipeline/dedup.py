@@ -1,8 +1,9 @@
 """Deterministic candidate matching without discarding source evidence."""
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from math import asin, cos, radians, sin, sqrt
+from typing import Any
 
 from app.repositories.snapshot_repo import canonical_hash
 
@@ -23,6 +24,34 @@ class Cluster:
     members: tuple[int, ...]
     source_ids: tuple[str, ...]
     reasons: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class ValueEvidence:
+    source_id: str
+    value: Any
+    authority: str
+    fetched_at: str
+
+
+@dataclass(frozen=True)
+class Resolution:
+    field_path: str
+    selected_value: Any
+    selected_source_id: str | None
+    status: str
+    reason: str
+    evidence: tuple[ValueEvidence, ...]
+
+
+AUTHORITY_ORDER = {
+    "OFFICIAL": 4,
+    "INTERGOVERNMENTAL": 3,
+    "LICENSED_PROVIDER": 2,
+    "COMMUNITY": 1,
+    "UNKNOWN": 0,
+}
+SAFETY_CRITICAL_FIELDS = frozenset({"severity", "closed", "status"})
 
 
 def _instant(record: dict) -> datetime | None:
@@ -136,3 +165,79 @@ def exact_clusters(records: list[dict], links: list[Match]) -> list[Cluster]:
         )
         for members in groups.values()
     ]
+
+
+def _field(record: dict, path: str) -> Any:
+    value: Any = record
+    for part in path.split("."):
+        if not isinstance(value, dict):
+            return None
+        value = value.get(part)
+    return value
+
+
+def _rank(record: dict, provider_health: dict[str, bool]) -> tuple:
+    source = record["source"]
+    quality = record.get("quality") or {}
+    fetched = datetime.fromisoformat(source["fetched_at"].replace("Z", "+00:00"))
+    if fetched.utcoffset() is None:
+        raise ValueError("fetched_at must include timezone")
+    source_id = source["source_id"]
+    return (
+        int(record.get("official") is True),
+        AUTHORITY_ORDER.get(source.get("authority", "UNKNOWN"), 0),
+        int(provider_health.get(source_id, False)),
+        int(quality.get("status") == "FRESH"),
+        quality.get("coverage") if quality.get("coverage") is not None else -1,
+        quality.get("completeness") if quality.get("completeness") is not None else -1,
+        fetched.astimezone(UTC).timestamp(),
+    )
+
+
+def resolve_field(
+    records: list[dict], field_path: str, *, provider_health: dict[str, bool] | None = None
+) -> Resolution:
+    """Select deterministically while exposing every source and unresolved conflict."""
+    if not records:
+        return Resolution(field_path, None, None, "UNAVAILABLE", "NO_EVIDENCE", ())
+    health = provider_health or {}
+    evidence = tuple(
+        ValueEvidence(
+            record["source"]["source_id"],
+            _field(record, field_path),
+            record["source"].get("authority", "UNKNOWN"),
+            record["source"]["fetched_at"],
+        )
+        for record in records
+    )
+    populated = [record for record in records if _field(record, field_path) is not None]
+    if not populated:
+        return Resolution(field_path, None, None, "UNAVAILABLE", "MISSING_VALUE", evidence)
+    selected = sorted(
+        populated,
+        key=lambda record: (
+            tuple(-value for value in _rank(record, health)),
+            record["source"]["source_id"],
+        ),
+    )[0]
+    values = {canonical_hash({"value": _field(record, field_path)}) for record in populated}
+    disputed = len(values) > 1
+    critical = field_path.rsplit(".", 1)[-1] in SAFETY_CRITICAL_FIELDS
+    status = (
+        "CONFLICTING"
+        if disputed and critical
+        else ("PARTIAL" if disputed else selected.get("quality", {}).get("status", "PARTIAL"))
+    )
+    reason = (
+        "UNRESOLVED_SAFETY_CONFLICT"
+        if disputed and critical
+        else ("AUTHORITY_RANK" if disputed else "SOURCE_AGREEMENT")
+    )
+    return Resolution(
+        field_path,
+        _field(selected, field_path),
+        selected["source"]["source_id"],
+        status,
+        reason,
+        evidence,
+    )
