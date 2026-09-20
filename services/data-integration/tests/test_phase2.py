@@ -109,3 +109,17 @@ async def test_canonical_upsert_keeps_lineage_and_geometry(isolated_database: st
             assert (await session.scalar(select(func.count()).select_from(CanonicalRecord))) == 1
     finally:
         await engine.dispose()
+
+
+async def test_copied_observation_time_is_quarantined(isolated_database: str) -> None:
+    engine = create_async_engine(isolated_database)
+    try:
+        async with AsyncSession(engine) as session:
+            before = await session.scalar(select(func.count()).select_from(Quarantine))
+            payload = usgs_record()
+            payload["source"]["observed_at"] = payload["source"]["fetched_at"]
+            assert await CanonicalRepository(session).ingest("disaster", payload) is None
+            await session.commit()
+            assert await session.scalar(select(func.count()).select_from(Quarantine)) == before + 1
+    finally:
+        await engine.dispose()

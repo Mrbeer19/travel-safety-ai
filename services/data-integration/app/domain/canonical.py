@@ -55,6 +55,12 @@ class SourceProvenance(StrictRecord):
     content_hash: str | None = None
     schema_version: str = Field(pattern=r"^1\.[0-9]+\.[0-9]+$")
 
+    @model_validator(mode="after")
+    def observed_is_not_fetch_time(self) -> Self:
+        if self.observed_at is not None and self.observed_at == self.fetched_at:
+            raise ValueError("observed_at must not be copied from fetched_at")
+        return self
+
 
 class DataQuality(StrictRecord):
     status: Literal["FRESH", "STALE", "UNAVAILABLE", "CONFLICTING", "PARTIAL"]
