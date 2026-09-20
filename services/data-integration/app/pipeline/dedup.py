@@ -167,6 +167,25 @@ def exact_clusters(records: list[dict], links: list[Match]) -> list[Cluster]:
     ]
 
 
+def candidate_groups(record_count: int, links: list[Match]) -> list[tuple[int, ...]]:
+    """Group similarity candidates for review without declaring them duplicates."""
+    parent = list(range(record_count))
+
+    def root(index: int) -> int:
+        while parent[index] != index:
+            parent[index] = parent[parent[index]]
+            index = parent[index]
+        return index
+
+    for link in links:
+        if link.reason == "SPATIAL_TEMPORAL":
+            parent[root(link.right)] = root(link.left)
+    groups: dict[int, list[int]] = {}
+    for index in range(record_count):
+        groups.setdefault(root(index), []).append(index)
+    return [tuple(members) for members in groups.values() if len(members) > 1]
+
+
 def _field(record: dict, path: str) -> Any:
     value: Any = record
     for part in path.split("."):

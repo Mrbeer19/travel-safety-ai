@@ -6,7 +6,7 @@ captured 2026-09-19T07:45:38Z, event us7000ti1p. Mutations exercise matching rul
 
 import copy
 
-from app.pipeline.dedup import candidate_links, exact_clusters, resolve_field
+from app.pipeline.dedup import candidate_groups, candidate_links, exact_clusters, resolve_field
 
 
 def captured_event() -> dict:
@@ -87,6 +87,7 @@ def test_nearby_events_are_candidates_only() -> None:
     assert links[0].reason == "SPATIAL_TEMPORAL"
     assert not links[0].mergeable
     assert len(exact_clusters([official, nearby], links)) == 2
+    assert candidate_groups(2, links) == [(0, 1)]
 
 
 def test_safety_conflict_keeps_all_evidence_and_prefers_official_source() -> None:
