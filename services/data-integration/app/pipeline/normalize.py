@@ -5,7 +5,7 @@ import inspect
 from datetime import UTC, datetime
 from decimal import ROUND_HALF_EVEN, Decimal
 
-from app.domain.canonical import GeoLineString, GeoPoint, RecordModel
+from app.domain.canonical import GeoLineString, GeoPoint, RecordModel, RouteCandidate
 from app.repositories.snapshot_repo import canonical_hash
 
 TRANSFORM_VERSION = "1.0.0"
@@ -96,6 +96,13 @@ def geometry_of(record: RecordModel) -> dict | None:
     if isinstance(geometry, GeoPoint):
         return geometry.model_dump(mode="json")
     return None
+
+
+def route_for_contract(route: RouteCandidate) -> dict:
+    """Adapt one raw provider route to the plural-provenance output shape."""
+    payload = canonicalize_value(route.model_dump(mode="python"))
+    payload["sources"] = [payload.pop("source")]
+    return payload
 
 
 def transform_checksum() -> str:

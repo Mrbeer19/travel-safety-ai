@@ -12,12 +12,14 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
+from app.domain.canonical import RouteCandidate
 from app.pipeline.normalize import (
     canonicalize_value,
     convert_unit,
     field_paths,
     normalize_place,
     normalize_severity,
+    route_for_contract,
     transform_checksum,
     utc_time,
 )
@@ -69,6 +71,39 @@ def test_pure_transforms_preserve_null_and_zero() -> None:
 
 
 timezone_bkk = timezone(timedelta(hours=7))
+
+
+def test_raw_route_to_plural_contract_provenance() -> None:
+    """ORS HTTP 200 capture, 2026-09-20T07:50:14Z; see module 04 fixture manifest."""
+    route = RouteCandidate.model_validate(
+        {
+            "route_id": "ors:bangkok-ayutthaya",
+            "label": "ORIGINAL",
+            "mode": "CAR",
+            "geometry": {
+                "type": "LineString",
+                "coordinates": [[100.538733, 13.764725], [100.538688, 13.76462]],
+            },
+            "distance_m": 73688.3,
+            "duration_seconds": 3183.8,
+            "transfers": 0,
+            "exposure": None,
+            "risk_level": "UNKNOWN",
+            "quality": {"status": "FRESH", "flags": ["INCOMPLETE"]},
+            "source": {
+                "source_id": "openrouteservice:captured-route",
+                "provider": "openrouteservice",
+                "authority": "LICENSED_PROVIDER",
+                "fetched_at": "2026-09-20T07:50:14Z",
+                "schema_version": "1.0.0",
+            },
+        }
+    )
+    output = route_for_contract(route)
+    assert "source" not in output
+    assert len(output["sources"]) == 1
+    assert output["sources"][0]["provider"] == "openrouteservice"
+    assert output["exposure"] is None and output["risk_level"] == "UNKNOWN"
 
 
 @pytest.mark.parametrize(
