@@ -97,3 +97,24 @@ class CanonicalRecord(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+class DedupCluster(Base):
+    __tablename__ = "dedup_clusters"
+    __table_args__ = (
+        UniqueConstraint("record_type", "cluster_key", "match_version", name="uq_dedup_cluster"),
+        Index("ix_dedup_cluster_created", "created_at"),
+        {"schema": "integration"},
+    )
+
+    id: Mapped[UUID] = mapped_column(PgUUID(as_uuid=True), primary_key=True, default=uuid4)
+    record_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    cluster_key: Mapped[str] = mapped_column(String(80), nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(80), nullable=False)
+    match_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    members_json: Mapped[list] = mapped_column(JSONB, nullable=False)
+    matches_json: Mapped[list] = mapped_column(JSONB, nullable=False)
+    conflicts_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )

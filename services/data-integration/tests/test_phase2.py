@@ -222,7 +222,10 @@ async def test_canonical_upsert_keeps_lineage_and_geometry(isolated_database: st
                 await session.scalar(
                     select(func.count())
                     .select_from(CanonicalRecord)
-                    .where(CanonicalRecord.record_type == "disaster")
+                    .where(
+                        CanonicalRecord.source_id == "usgs_earthquake:us7000ti1p",
+                        CanonicalRecord.content_hash == first.content_hash,
+                    )
                 )
             ) == 1
     finally:
