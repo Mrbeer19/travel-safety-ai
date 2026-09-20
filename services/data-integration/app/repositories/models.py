@@ -72,3 +72,28 @@ class FieldLineage(Base):
     source_id: Mapped[str] = mapped_column(String(128), nullable=False)
     transform_id: Mapped[str | None] = mapped_column(String(128))
     transform_version: Mapped[str | None] = mapped_column(String(32))
+
+
+class CanonicalRecord(Base):
+    __tablename__ = "canonical_records"
+    __table_args__ = (
+        UniqueConstraint("record_type", "source_id", "content_hash", name="uq_canonical_version"),
+        Index("ix_canonical_geometry", "geometry", postgresql_using="gist"),
+        Index("ix_canonical_valid_at", "valid_at"),
+        {"schema": "integration"},
+    )
+
+    id: Mapped[UUID] = mapped_column(PgUUID(as_uuid=True), primary_key=True, default=uuid4)
+    record_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    source_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(80), nullable=False)
+    schema_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    transform_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    payload_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    lineage_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    geometry = mapped_column(Geometry("GEOMETRY", srid=4326, spatial_index=False))
+    valid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
