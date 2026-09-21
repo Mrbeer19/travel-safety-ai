@@ -1,14 +1,15 @@
-"""Immutable, idempotent snapshot persistence; pipeline is implemented later."""
+"""Immutable, idempotent snapshot persistence."""
 
 import hashlib
 import json
 from uuid import UUID, uuid4
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.domain.errors import SnapshotConflictError
+from app.domain.errors import SnapshotConflictError, SnapshotNotFoundError
+from app.domain.snapshot import IntegratedTravelContext
 from app.repositories.models import Snapshot
 
 
@@ -66,3 +67,39 @@ class SnapshotRepository:
 
     async def get(self, snapshot_id: UUID) -> Snapshot | None:
         return await self.session.get(Snapshot, snapshot_id)
+
+    async def save(self, snapshot: IntegratedTravelContext, *, input_content_hash: str) -> Snapshot:
+        """Store once per idempotency key; a replay returns the first stored snapshot."""
+        supersedes = snapshot.supersedes_snapshot_id
+        if supersedes is not None and await self.get(supersedes) is None:
+            raise SnapshotNotFoundError(f"superseded snapshot {supersedes} does not exist")
+        corridor = json.dumps(snapshot.route_corridor_geojson.model_dump(mode="json"))
+        statement = (
+            insert(Snapshot)
+            .values(
+                id=snapshot.snapshot_id,
+                request_id=snapshot.request_id,
+                input_content_hash=input_content_hash,
+                content_hash=snapshot.content_hash,
+                schema_version=snapshot.schema_version,
+                feature_schema_version=snapshot.feature_schema_version,
+                evidence_json=snapshot.model_dump(mode="json"),
+                route_corridor=func.ST_SetSRID(func.ST_GeomFromGeoJSON(corridor), 4326),
+                supersedes_id=supersedes,
+                created_at=snapshot.created_at,
+            )
+            .on_conflict_do_nothing(constraint="uq_snapshot_input")
+        )
+        await self.session.execute(statement)
+        stored = (
+            await self.session.execute(
+                select(Snapshot).where(
+                    Snapshot.request_id == snapshot.request_id,
+                    Snapshot.input_content_hash == input_content_hash,
+                    Snapshot.schema_version == snapshot.schema_version,
+                )
+            )
+        ).scalar_one()
+        if stored.content_hash != snapshot.content_hash:
+            raise SnapshotConflictError("idempotency key refers to different immutable content")
+        return stored
