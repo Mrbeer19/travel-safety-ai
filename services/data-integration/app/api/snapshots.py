@@ -1,5 +1,6 @@
 """Internal snapshot endpoints (packages/contracts/openapi/internal-data-integration.yaml)."""
 
+import time
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
@@ -15,6 +16,16 @@ from app.api.envelope import error, success
 from app.domain.canonical import StrictRecord
 from app.domain.errors import SnapshotConflictError, SnapshotNotFoundError
 from app.domain.snapshot import IntegratedTravelContext, SnapshotCreateRequest
+from app.observability.metrics import (
+    evidence_age_unknown,
+    evidence_conflicts,
+    evidence_coverage,
+    evidence_freshness,
+    quality_flags,
+    snapshot_build_seconds,
+    snapshot_replays,
+    snapshots_created,
+)
 from app.pipeline.build import build_route_snapshot, evidence_from_request
 from app.pipeline.snapshot import SNAPSHOT_SCHEMA_VERSION, UNHASHED
 from app.repositories.db import build_session_factory, unit_of_work
@@ -43,6 +54,24 @@ async def _stored(session: Any, request_id: UUID) -> list[Snapshot]:
     return list(rows.scalars())
 
 
+def _observe(snapshot: IntegratedTravelContext, seconds: float) -> None:
+    """Record one stored snapshot; labels come from closed enums only."""
+    quality = snapshot.quality_summary
+    snapshots_created.labels(gate=_gate(quality.notes) or "UNKNOWN").inc()
+    snapshot_build_seconds.observe(seconds)
+    for flag in quality.flags:
+        quality_flags.labels(flag=flag).inc()
+    evidence_conflicts.inc(len(snapshot.conflict_summary))
+    coverage = snapshot.features.get("critical_evidence_coverage")
+    if isinstance(coverage, int | float):
+        evidence_coverage.observe(coverage)
+    age = snapshot.features.get("critical_evidence_freshness_seconds")
+    if isinstance(age, int | float):
+        evidence_freshness.observe(age)
+    else:
+        evidence_age_unknown.inc()
+
+
 @router.post("", response_model=None)
 async def create_snapshot(
     body: SnapshotCreateRequest, request: Request, _: InternalAuth
@@ -54,9 +83,11 @@ async def create_snapshot(
             existing = await _stored(session, body.request_id)
             for row in existing:
                 if row.input_content_hash == input_hash:
+                    snapshot_replays.inc()
                     return JSONResponse(status_code=200, content=success(row.evidence_json))
             if existing:
                 return error("IDEMPOTENCY_CONFLICT", "request_id was used with other content", 409)
+            started = time.perf_counter()
             snapshot = await build_route_snapshot(
                 session,
                 snapshot_id=uuid4(),
@@ -72,7 +103,7 @@ async def create_snapshot(
             stored = await SnapshotRepository(session).save(
                 snapshot, input_content_hash=input_hash, request_json=request_json
             )
-            return JSONResponse(status_code=201, content=success(stored.evidence_json))
+            stored_json = stored.evidence_json
     except SnapshotNotFoundError:
         return error("NOT_FOUND", "superseded snapshot does not exist", 404)
     except SnapshotConflictError:
@@ -81,6 +112,9 @@ async def create_snapshot(
         return error("VALIDATION_ERROR", "evidence cannot form a valid snapshot", 422)
     except SQLAlchemyError:
         return error("DEPENDENCY_UNAVAILABLE", "Storage unavailable", 503)
+    # Observed only after the transaction committed.
+    _observe(snapshot, time.perf_counter() - started)
+    return JSONResponse(status_code=201, content=success(stored_json))
 
 
 @router.get("/{snapshot_id}", response_model=None)

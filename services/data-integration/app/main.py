@@ -15,7 +15,7 @@ from app.api.internal import health_router, internal_router
 from app.api.snapshots import router as snapshot_router
 from app.observability.context import correlation_id, request_id
 from app.observability.logging import configure_logging
-from app.observability.metrics import http_latency, http_requests
+from app.observability.metrics import http_latency, http_requests, requests_rejected
 from app.repositories.db import build_engine
 from app.settings import get_settings
 
@@ -73,6 +73,8 @@ def create_app() -> FastAPI:
             }
             for item in exc.errors()
         ]
+        for item in field_errors:
+            requests_rejected.labels(code=item["code"]).inc()
         return error("VALIDATION_ERROR", "Request does not match the contract", 422, field_errors)
 
     @application.exception_handler(Exception)
