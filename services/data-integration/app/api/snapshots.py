@@ -47,7 +47,8 @@ async def _stored(session: Any, request_id: UUID) -> list[Snapshot]:
 async def create_snapshot(
     body: SnapshotCreateRequest, request: Request, _: InternalAuth
 ) -> JSONResponse:
-    input_hash = canonical_hash(body.model_dump(mode="json"))
+    request_json = body.model_dump(mode="json")
+    input_hash = canonical_hash(request_json)
     try:
         async with unit_of_work(_factory(request)) as session:
             existing = await _stored(session, body.request_id)
@@ -68,7 +69,9 @@ async def create_snapshot(
                 settings=get_settings(),
                 created_at=datetime.now(UTC),
             )
-            stored = await SnapshotRepository(session).save(snapshot, input_content_hash=input_hash)
+            stored = await SnapshotRepository(session).save(
+                snapshot, input_content_hash=input_hash, request_json=request_json
+            )
             return JSONResponse(status_code=201, content=success(stored.evidence_json))
     except SnapshotNotFoundError:
         return error("NOT_FOUND", "superseded snapshot does not exist", 404)

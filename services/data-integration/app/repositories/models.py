@@ -31,6 +31,8 @@ class Snapshot(Base):
     schema_version: Mapped[str] = mapped_column(String(32), nullable=False)
     feature_schema_version: Mapped[str | None] = mapped_column(String(32))
     evidence_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    # Null for snapshots stored before migration 0006; those cannot be rebuilt.
+    request_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     route_corridor = mapped_column(
         Geometry("GEOMETRY", srid=4326, spatial_index=False), nullable=True
     )

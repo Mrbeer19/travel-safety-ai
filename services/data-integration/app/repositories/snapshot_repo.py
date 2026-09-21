@@ -68,7 +68,13 @@ class SnapshotRepository:
     async def get(self, snapshot_id: UUID) -> Snapshot | None:
         return await self.session.get(Snapshot, snapshot_id)
 
-    async def save(self, snapshot: IntegratedTravelContext, *, input_content_hash: str) -> Snapshot:
+    async def save(
+        self,
+        snapshot: IntegratedTravelContext,
+        *,
+        input_content_hash: str,
+        request_json: dict | None = None,
+    ) -> Snapshot:
         """Store once per idempotency key; a replay returns the first stored snapshot."""
         supersedes = snapshot.supersedes_snapshot_id
         if supersedes is not None and await self.get(supersedes) is None:
@@ -84,6 +90,7 @@ class SnapshotRepository:
                 schema_version=snapshot.schema_version,
                 feature_schema_version=snapshot.feature_schema_version,
                 evidence_json=snapshot.model_dump(mode="json"),
+                request_json=request_json,
                 route_corridor=func.ST_SetSRID(func.ST_GeomFromGeoJSON(corridor), 4326),
                 supersedes_id=supersedes,
                 created_at=snapshot.created_at,
