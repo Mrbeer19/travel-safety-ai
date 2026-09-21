@@ -23,14 +23,16 @@ def success(data: Any) -> dict[str, Any]:
     return {"data": data, "meta": meta()}
 
 
-def error(code: str, message: str, status: int) -> JSONResponse:
+def error(
+    code: str, message: str, status: int, field_errors: list[dict[str, str]] | None = None
+) -> JSONResponse:
     return JSONResponse(
         status_code=status,
         content={
             "error": {
                 "code": code,
                 "message": message,
-                "field_errors": [],
+                "field_errors": field_errors or [],
                 "retryable": status >= 500,
                 "retry_after_seconds": None,
             },

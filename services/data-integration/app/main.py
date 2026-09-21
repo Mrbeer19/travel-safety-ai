@@ -6,11 +6,13 @@ from contextlib import asynccontextmanager
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from app.api.envelope import error
 from app.api.internal import health_router, internal_router
+from app.api.snapshots import router as snapshot_router
 from app.observability.context import correlation_id, request_id
 from app.observability.logging import configure_logging
 from app.observability.metrics import http_latency, http_requests
@@ -60,6 +62,19 @@ def create_app() -> FastAPI:
         code = "AUTHENTICATION_REQUIRED" if exc.status_code == 401 else "NOT_FOUND"
         return error(code, str(exc.detail), exc.status_code)
 
+    @application.exception_handler(RequestValidationError)
+    async def invalid_request(_: Request, exc: RequestValidationError) -> JSONResponse:
+        # Paths only: a rejected value is never echoed back.
+        codes = {"missing": "REQUIRED", "extra_forbidden": "UNKNOWN_FIELD"}
+        field_errors = [
+            {
+                "path": ".".join(str(part) for part in item["loc"][1:])[:256],
+                "code": codes.get(item["type"], "INVALID_FORMAT"),
+            }
+            for item in exc.errors()
+        ]
+        return error("VALIDATION_ERROR", "Request does not match the contract", 422, field_errors)
+
     @application.exception_handler(Exception)
     async def unknown_exception(_: Request, __: Exception) -> JSONResponse:
         return error("INTERNAL_ERROR", "Internal error", 500)
@@ -70,6 +85,7 @@ def create_app() -> FastAPI:
 
     application.include_router(health_router)
     application.include_router(internal_router)
+    application.include_router(snapshot_router)
     return application
 
 
