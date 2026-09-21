@@ -101,3 +101,26 @@ async def hazard_ids_in_corridor(
         },
     )
     return list(result.scalars())
+
+
+async def corridor_buffer_geojson(
+    session: AsyncSession, samples: list[RouteSample], *, radius_m: float
+) -> dict:
+    """Buffer each dateline part on geography so no polygon wraps the globe."""
+    if radius_m <= 0:
+        raise ValueError("corridor radius must be positive")
+    value = await session.scalar(
+        text("""
+        SELECT ST_AsGeoJSON(
+            ST_CollectionExtract(
+                ST_Collect(ST_Buffer((part).geom::geography, :radius_m)::geometry), 3
+            ),
+            7
+        )
+        FROM ST_Dump(ST_GeomFromGeoJSON(:route)) AS part
+    """),
+        {"route": corridor_geojson(samples), "radius_m": radius_m},
+    )
+    if value is None:
+        raise ValueError("corridor buffer could not be built")
+    return json.loads(value)
