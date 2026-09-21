@@ -77,7 +77,7 @@ def _known_at(source: SourceProvenance, cutoff: datetime) -> bool:
     return all(time is None or time <= cutoff for time in times)
 
 
-def _before_cutoff(records: list[Record] | None, cutoff: datetime) -> list[Record] | None:
+def before_cutoff(records: list[Record] | None, cutoff: datetime) -> list[Record] | None:
     """Drop evidence learned after the recommendation; nothing left means unavailable."""
     if records is None:
         return None
@@ -96,7 +96,7 @@ def _covers(sample: RouteSample, record: WeatherForecastPoint, policy: FeaturePo
 
 
 def _weather(inputs: FeatureInputs, policy: FeaturePolicy) -> dict[str, FeatureValue]:
-    records = _before_cutoff(inputs.weather, inputs.recommendation_at)
+    records = before_cutoff(inputs.weather, inputs.recommendation_at)
     matched = [
         record
         for record in records or []
@@ -147,7 +147,7 @@ def _active_at(event: DisasterEvent, at: datetime) -> bool:
 
 
 def _disasters(inputs: FeatureInputs) -> dict[str, FeatureValue]:
-    events = _before_cutoff(inputs.disasters_in_corridor, inputs.recommendation_at)
+    events = before_cutoff(inputs.disasters_in_corridor, inputs.recommendation_at)
     if events is None:
         return dict.fromkeys([*OFFICIAL_ALERT_FEATURES, "hazard_intersection_fraction"])
     start, end = inputs.samples[0].eta, inputs.samples[-1].eta
@@ -178,7 +178,7 @@ def _disasters(inputs: FeatureInputs) -> dict[str, FeatureValue]:
 def _transport(inputs: FeatureInputs, policy: FeaturePolicy) -> tuple[int | None, float | None]:
     """Return the disruption ordinal and the share of transit segments with usable status."""
     relevant = [s for s in inputs.route.segments if s.transport_status_id]
-    records = _before_cutoff(inputs.transport, inputs.recommendation_at)
+    records = before_cutoff(inputs.transport, inputs.recommendation_at)
     if not relevant or records is None:
         return None, None
     mapping = _mapping("transport_disruption_severity")
@@ -208,7 +208,7 @@ def _coverage(
     inputs: FeatureInputs, policy: FeaturePolicy, transport_coverage: float | None
 ) -> float:
     """Minimum over required evidence; an unavailable source covers nothing."""
-    weather = _before_cutoff(inputs.weather, inputs.recommendation_at) or []
+    weather = before_cutoff(inputs.weather, inputs.recommendation_at) or []
     covered = sum(any(_covers(s, r, policy) for r in weather) for s in inputs.samples)
     parts = [
         covered / len(inputs.samples),

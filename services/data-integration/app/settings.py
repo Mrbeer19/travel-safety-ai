@@ -19,6 +19,20 @@ class Settings(BaseSettings):
     postgres_user: str = Field(default="smart_travel", alias="POSTGRES_USER")
     postgres_password: SecretStr = Field(default=SecretStr(""), alias="POSTGRES_PASSWORD")
     quarantine_retention_days: int = Field(default=30, alias="QUARANTINE_RETENTION_DAYS", ge=1)
+    corridor_radius_m: float = Field(default=5000, alias="CORRIDOR_RADIUS_M", gt=0)
+    route_sample_spacing_m: float = Field(default=1000, alias="ROUTE_SAMPLE_SPACING_M", gt=0)
+    weather_time_tolerance_seconds: float = Field(
+        default=1800, alias="WEATHER_TIME_TOLERANCE_SECONDS", ge=0
+    )
+    transport_time_tolerance_seconds: float = Field(
+        default=600, alias="TRANSPORT_TIME_TOLERANCE_SECONDS", ge=0
+    )
+    duplicate_distance_m: float = Field(default=25000, alias="DUPLICATE_DISTANCE_M", ge=0)
+    duplicate_time_seconds: float = Field(default=3600, alias="DUPLICATE_TIME_SECONDS", ge=0)
+    quality_minimum_score: float = Field(default=0.85, alias="QUALITY_MINIMUM_SCORE", ge=0, le=1)
+    quality_minimum_coverage: float = Field(
+        default=0.8, alias="QUALITY_MINIMUM_COVERAGE", ge=0, le=1
+    )
 
     @field_validator("internal_service_token", mode="after")
     @classmethod
