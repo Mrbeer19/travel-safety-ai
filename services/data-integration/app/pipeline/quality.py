@@ -123,8 +123,13 @@ def summarize_quality(
     policy: QualityPolicy,
     identity_valid: bool,
     geometry_valid: bool,
+    unresolved_conflicts: int = 0,
 ) -> QualitySummary:
-    """Keep missing evidence visible; a high score never overrules a blocking condition."""
+    """Keep missing evidence visible; a high score never overrules a blocking condition.
+
+    `unresolved_conflicts` counts disagreements found across sources (for example by
+    dedup), which no single producer's DataQuality can report.
+    """
     missing = tuple(
         sorted(
             name
@@ -135,7 +140,9 @@ def summarize_quality(
     flags = {flag for quality in sources.values() for flag in quality.flags}
     if missing:
         flags.add("MISSING")
-    conflict_count = sum(len(quality.conflicts) for quality in sources.values())
+    if unresolved_conflicts < 0:
+        raise ValueError("unresolved conflicts must be nonnegative")
+    conflict_count = unresolved_conflicts + sum(len(q.conflicts) for q in sources.values())
     if conflict_count or any(q.status == "CONFLICTING" for q in sources.values()):
         flags.add("CONFLICTING")
     # Producers judge staleness per source; a road graph and a realtime feed age differently.

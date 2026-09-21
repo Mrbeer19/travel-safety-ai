@@ -169,3 +169,18 @@ def test_conflicts_cannot_exceed_comparable_facts() -> None:
             unresolved_conflicts=2,
             authorities=[],
         )
+
+
+def test_cross_source_conflict_flags_and_degrades() -> None:
+    result = summarize_quality(
+        {"weather": quality(), "route": quality()},
+        required=frozenset({"weather", "route"}),
+        dimensions=FULL,
+        policy=POLICY,
+        identity_valid=True,
+        geometry_valid=True,
+        unresolved_conflicts=1,
+    )
+    assert result.conflict_count == 1
+    assert "CONFLICTING" in result.flags
+    assert result.gate == "DEGRADED"

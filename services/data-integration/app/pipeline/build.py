@@ -188,6 +188,7 @@ async def build_route_snapshot(
         ),
         identity_valid=True,
         geometry_valid=await _geometry_valid(session, evidence),
+        unresolved_conflicts=len(conflicts),
     )
     corridor = await corridor_buffer_geojson(session, samples, radius_m=settings.corridor_radius_m)
     return assemble_snapshot(
