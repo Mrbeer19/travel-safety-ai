@@ -10,6 +10,26 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.pipeline.corridor import RouteSample, split_dateline
 
+# Shared with the EXPLAIN checks in tests so the measured plan is the served plan.
+# The corridor is parsed once in a materialized CTE: under a generic prepared plan an
+# inline ST_GeomFromGeoJSON(:route) was re-parsed for every row, 30x slower at 50k rows.
+HAZARD_QUERY = """
+        WITH corridor AS MATERIALIZED (
+            SELECT ST_GeomFromGeoJSON(:route)::geography AS shape
+        )
+        SELECT record.id
+        FROM integration.canonical_records AS record, corridor
+        WHERE record.record_type = 'disaster'
+          AND record.geometry IS NOT NULL
+          AND record.valid_at <= :end_at
+          AND (
+            record.payload_json ->> 'ends_at' IS NULL
+            OR (record.payload_json ->> 'ends_at')::timestamptz >= :start_at
+          )
+          AND ST_DWithin(record.geometry::geography, corridor.shape, :radius_m)
+        ORDER BY record.id
+    """
+
 
 @dataclass(frozen=True)
 class GeometryHealth:
@@ -77,22 +97,7 @@ async def hazard_ids_in_corridor(
     if end_at < start_at:
         raise ValueError("travel window ends before it starts")
     result = await session.execute(
-        text("""
-        SELECT id FROM integration.canonical_records
-        WHERE record_type = 'disaster'
-          AND geometry IS NOT NULL
-          AND valid_at <= :end_at
-          AND (
-            payload_json ->> 'ends_at' IS NULL
-            OR (payload_json ->> 'ends_at')::timestamptz >= :start_at
-          )
-          AND ST_DWithin(
-            geometry::geography,
-            ST_GeomFromGeoJSON(:route)::geography,
-            :radius_m
-          )
-        ORDER BY id
-    """),
+        text(HAZARD_QUERY),
         {
             "route": corridor_geojson(samples),
             "radius_m": radius_m,
