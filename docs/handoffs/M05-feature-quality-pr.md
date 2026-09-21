@@ -26,7 +26,7 @@ Out of scope:
 ## Contract, database and configuration changes
 
 - API/OpenAPI/JSON Schema: no change. `features` in `IntegratedTravelContext` is already a `number/string/boolean/null` map.
-- **Deliberate difference from the M06 proposal:** `corridor_official_closure_active`, `corridor_official_evacuation_active`, and `corridor_extreme_alert_active` return null when the alert source is unavailable. An absent source cannot prove "no closure".
+- **Lead decision on #43/#44 applied:** the three `corridor_official_*` booleans are `nullable: true` and return null when the alert source is unavailable (an absent source cannot prove "no closure"); `corridor_official_evacuation_active` is `critical: false` until a provider exists. Module 06 applies the same change in PR #12.
 - Migration/table/index: none.
 - Environment variables: none.
 - Backward compatibility/rollout: nothing calls the builder at runtime until PR 7.
@@ -97,8 +97,7 @@ result: exit 0, sha256:67942c6dfa7eb644b8287866845d5e50f11572243643c3e1d48eee9ec
 
 ## Risks and limitations
 
-- `corridor_official_evacuation_active` is always null because no producer publishes evacuation orders. Under M06's rule, every assessment becomes UNKNOWN until that changes.
-- M06 validation may reject the nullable official booleans until the schema is agreed.
+- `corridor_official_evacuation_active` is always null because no producer publishes evacuation orders; it is non-critical per the Lead decision (#44), so it no longer forces UNKNOWN.
 - `align_disaster` crashes on Polygon events. The builder does not use it for areas, but the corridor pipeline does.
 - About 780 changed lines in total (quality 175, features 604 including the 133-line verbatim schema), over the 400-line guideline. The work can be split: quality gate (`2b97108`..`ceab738`) as one PR and the feature vector (`f925c43`..`550e39b`) stacked on it.
 
@@ -112,7 +111,7 @@ result: exit 0, sha256:67942c6dfa7eb644b8287866845d5e50f11572243643c3e1d48eee9ec
 
 - Completion report: `docs/handoffs/M05-feature-quality.md`
 - What the next owner must do: M06 approves the schema and decides whether the official booleans can be null. M04 says whether evacuation orders can be sourced.
-- Reviewer focus areas: the null and `False` semantics in `_disasters`, the leakage cutoff in `_before_cutoff`, and the `PRODUCER_NULLABLE` difference from the proposal.
+- Reviewer focus areas: the null and `False` semantics in `_disasters`, the leakage cutoff in `_before_cutoff`, and the schema copy matching the Lead decision on #43/#44.
 
 ## Follow-up issues
 

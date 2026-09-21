@@ -72,7 +72,7 @@ From `IMPLEMENTATION_PLANS/05_DATA_INTEGRATION_IMPLEMENTATION.md` §6, §7 and P
 | --- | --- | --- | --- |
 | `build_features` | Compute and validate all schema features | `FeatureInputs`, `FeaturePolicy` → `FeatureVector` | Output order follows the schema; any undeclared name raises |
 | `FeatureVector` | `schema_version`, `values`, `null_features` | | `null_features` feeds the MISSING flag the schema requires |
-| `PRODUCER_NULLABLE` | Official alert booleans that may be null | | Diverges from the proposal on purpose; see §13 |
+| `OFFICIAL_ALERT_FEATURES` | Official alert booleans, null when alerts are unavailable | | Nullable per Lead decision on #43 |
 | `summarize_quality` | Gate plus flags | Per-source `DataQuality` → `QualitySummary` | An unknown score stays `None`, never 0 |
 
 ### Decisions/trade-offs
@@ -87,7 +87,7 @@ From `IMPLEMENTATION_PLANS/05_DATA_INTEGRATION_IMPLEMENTATION.md` §6, §7 and P
 | --- | --- | --- | --- | --- | --- |
 | M05 | None in this PR | | `features` map inside `IntegratedTravelContext` (already typed as `number/string/boolean/null`) | M06 | No shared schema change |
 
-The feature set follows module 06's proposal, with one deliberate difference: the three `corridor_official_*` booleans can be null. That difference is raised with module 06 as an issue.
+The feature set follows module 06's proposal as amended by the Lead decision on #43 and #44: the three `corridor_official_*` booleans are `nullable: true`, and `corridor_official_evacuation_active` is `critical: false` until a provider supplies evacuation orders. The local schema copy carries both changes; module 06 applies the same change in PR #12.
 
 ## 7. Database, cache and storage changes
 
@@ -155,7 +155,7 @@ Not applicable: this phase changes an internal service only.
 | Problem | Root cause | Evidence | Resolution/workaround | Remaining risk |
 | --- | --- | --- | --- | --- |
 | Two feature schemas | M05 drafted v0.1.0 (26 features) while M06 proposed v1.0.0 (13 features, rejects unknown) | `origin/contract/06-risk-evidence-route-schema:services/risk-knowledge/governance/feature_schema.v1.yaml` | Owner chose M06 v1.0.0; the v0.1.0 draft is retired | The proposal is not yet approved by both sides |
-| Official booleans non-nullable | The M06 proposal sets `nullable: false` | Schema lines 36-56 | Builder returns null when the alert source is unavailable | M06 validation will reject null until the schema changes; issue raised |
+| Official booleans non-nullable | The M06 proposal set `nullable: false` | Schema lines 36-56 | Lead decided nullable (#43); schema copy updated and guarded by a test | M06 PR #12 must carry the same change |
 | No evacuation data | No M04 provider or contract carries evacuation orders | `git grep -i evacuat` finds nothing in contracts or external-data | Always null | Critical feature null means M06 always returns UNKNOWN |
 | Stale route misread | Road graph age (689760 s) compared with a realtime threshold | M04 route fixture | Features use producer `status` | `quality.py` still applies the global threshold; issue raised |
 | Lockfile churn | Container uv 0.5.14 is older than the lock's writer | 413-line diff | Re-locked with host uv 0.11.1: 2-line diff | Container and host uv versions differ |
@@ -168,8 +168,8 @@ The builder is pure Python at O(samples × records). It has not been benchmarked
 
 | Limitation/debt | User/safety impact | Workaround | Owner | Priority | Follow-up issue |
 | --- | --- | --- | --- | --- | --- |
-| Evacuation feature always null | Every assessment becomes UNKNOWN under M06's critical rule | None | M04 provider, M06 schema | High | Draft 2 |
-| Official booleans nullable vs proposal | M06 may reject our vectors | Agree on nullable | M06 | High | Draft 1 |
+| Evacuation feature always null | No longer blocks assessments: Lead set it non-critical (#44) | None | M04 provider | Medium | #44 |
+| Official booleans nullable | Resolved by Lead decision (#43) | n/a | M06 PR #12 | Done on M05 side | #43 |
 | `align_disaster` assumes Point geometry | Crashes on Polygon events | Builder avoids it for areas | M05 | High | Draft 3 |
 | `quality.py` global freshness threshold | Car routes always DEGRADED | None | M05 | Medium | Draft 4 |
 | Coverage is unweighted min | Conservative, not the §7 weighted score | Min is safe-side | M05 | Medium | Next PR |
