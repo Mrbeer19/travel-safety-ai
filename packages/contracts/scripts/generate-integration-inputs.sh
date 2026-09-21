@@ -30,6 +30,8 @@ uvx --python 3.12 --from datamodel-code-generator==0.28.5 datamodel-codegen \
 
 mkdir -p "$output"
 for name in __init__.py primitives_schema.py enums_schema.py geojson_schema.py \
-  source_provenance_schema.py data_quality_schema.py; do
+  source_provenance_schema.py data_quality_schema.py weather_schema.py \
+  transport_status_schema.py disaster_event_schema.py emergency_poi_schema.py \
+  route_candidate_schema.py; do
   cp "$models/$name" "$output/$name"
 done
