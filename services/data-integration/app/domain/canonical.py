@@ -43,6 +43,39 @@ class GeoLineString(StrictRecord):
         return self
 
 
+def _valid_ring(ring: list[tuple[FiniteFloat, FiniteFloat]]) -> bool:
+    return (
+        len(ring) >= 4
+        and ring[0] == ring[-1]
+        and len(set(ring[:-1])) >= 3
+        and all(-180 <= lon <= 180 and -90 <= lat <= 90 for lon, lat in ring)
+    )
+
+
+class GeoPolygon(StrictRecord):
+    type: Literal["Polygon"]
+    coordinates: list[list[tuple[FiniteFloat, FiniteFloat]]] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def closed_rings(self) -> Self:
+        if not all(_valid_ring(ring) for ring in self.coordinates):
+            raise ValueError("polygon requires closed WGS84 rings")
+        return self
+
+
+class GeoMultiPolygon(StrictRecord):
+    type: Literal["MultiPolygon"]
+    coordinates: list[list[list[tuple[FiniteFloat, FiniteFloat]]]] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def closed_rings(self) -> Self:
+        if not all(
+            polygon and all(_valid_ring(ring) for ring in polygon) for polygon in self.coordinates
+        ):
+            raise ValueError("multipolygon requires closed WGS84 rings")
+        return self
+
+
 class SourceProvenance(StrictRecord):
     source_id: str = Field(min_length=1)
     provider: str = Field(min_length=1)
@@ -135,7 +168,7 @@ class DisasterEvent(StrictRecord):
     title: str
     description: str | None = None
     severity: Severity
-    geometry: GeoPoint
+    geometry: GeoPoint | GeoPolygon | GeoMultiPolygon
     effective_at: AwareDatetime
     ends_at: AwareDatetime | None = None
     instruction: str | None = None

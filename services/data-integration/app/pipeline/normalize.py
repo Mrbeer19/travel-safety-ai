@@ -5,7 +5,14 @@ import inspect
 from datetime import UTC, datetime
 from decimal import ROUND_HALF_EVEN, Decimal
 
-from app.domain.canonical import GeoLineString, GeoPoint, RecordModel, RouteCandidate
+from app.domain.canonical import (
+    GeoLineString,
+    GeoMultiPolygon,
+    GeoPoint,
+    GeoPolygon,
+    RecordModel,
+    RouteCandidate,
+)
 from app.repositories.snapshot_repo import canonical_hash
 
 TRANSFORM_VERSION = "1.0.0"
@@ -102,7 +109,7 @@ def geometry_of(record: RecordModel) -> dict | None:
     geometry = getattr(record, "geometry", None) or getattr(record, "location", None)
     if isinstance(geometry, GeoLineString):
         return normalize_line(geometry)
-    if isinstance(geometry, GeoPoint):
+    if isinstance(geometry, GeoPoint | GeoPolygon | GeoMultiPolygon):
         return geometry.model_dump(mode="json")
     return None
 

@@ -259,3 +259,59 @@ async def test_generated_required_field_is_quarantined(isolated_database: str) -
             assert error.field_path == "quality.score_version"
     finally:
         await engine.dispose()
+
+
+@pytest.mark.parametrize("geometry_type", ["Polygon", "MultiPolygon"])
+async def test_sourced_area_geometry_is_persisted(
+    isolated_database: str, geometry_type: str
+) -> None:
+    """Test-only square around the captured USGS event coordinate."""
+    ring = [
+        [-171.38, 52.85],
+        [-171.37, 52.85],
+        [-171.37, 52.86],
+        [-171.38, 52.86],
+        [-171.38, 52.85],
+    ]
+    sample = usgs_record()
+    sample["geometry"] = {
+        "type": geometry_type,
+        "coordinates": [ring] if geometry_type == "Polygon" else [[ring]],
+    }
+    engine = create_async_engine(isolated_database)
+    try:
+        async with AsyncSession(engine) as session:
+            stored = await CanonicalRepository(session).ingest("disaster", sample)
+            assert stored is not None
+            assert stored.payload_json["canonical_geometry"]["type"] == geometry_type
+    finally:
+        await engine.dispose()
+
+
+async def test_self_intersecting_polygon_is_quarantined(isolated_database: str) -> None:
+    """Test-only bowtie mutation around the captured USGS event coordinate."""
+    sample = usgs_record()
+    sample["geometry"] = {
+        "type": "Polygon",
+        "coordinates": [
+            [
+                [-171.38, 52.85],
+                [-171.37, 52.86],
+                [-171.37, 52.85],
+                [-171.38, 52.86],
+                [-171.38, 52.85],
+            ]
+        ],
+    }
+    engine = create_async_engine(isolated_database)
+    try:
+        async with AsyncSession(engine) as session:
+            assert await CanonicalRepository(session).ingest("disaster", sample) is None
+            error = (
+                await session.execute(
+                    select(Quarantine).where(Quarantine.source_hash == canonical_hash(sample))
+                )
+            ).scalar_one()
+            assert error.error_code == "INVALID_INPUT"
+    finally:
+        await engine.dispose()

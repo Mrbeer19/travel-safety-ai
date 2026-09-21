@@ -7,7 +7,7 @@ from uuid import uuid4
 
 from geoalchemy2.elements import WKTElement
 from pydantic import ValidationError
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,6 +24,17 @@ def _geometry_wkt(record: RecordModel) -> WKTElement | None:
     points = geometry["coordinates"]
     if geometry["type"] == "Point":
         return WKTElement(f"POINT ({points[0]} {points[1]})", srid=4326)
+    if geometry["type"] in {"Polygon", "MultiPolygon"}:
+
+        def ring(r: list[list[float]]) -> str:
+            return "(" + ", ".join(f"{lon} {lat}" for lon, lat in r) + ")"
+
+        def polygon(p: list[list[list[float]]]) -> str:
+            return "(" + ", ".join(ring(r) for r in p) + ")"
+
+        if geometry["type"] == "Polygon":
+            return WKTElement("POLYGON " + polygon(points), srid=4326)
+        return WKTElement("MULTIPOLYGON (" + ", ".join(polygon(p) for p in points) + ")", srid=4326)
     vertices = ", ".join(f"{lon} {lat}" for lon, lat in points)
     return WKTElement(f"LINESTRING ({vertices})", srid=4326)
 
@@ -43,6 +54,12 @@ class CanonicalRepository:
             GENERATED_MODELS[kind].model_validate(raw)
             record = RECORD_MODELS[kind].model_validate(raw)
             payload, lineage = normalize_record(record)
+            geometry_wkt = _geometry_wkt(record)
+            if geometry_wkt is not None and not await self.session.scalar(
+                text("SELECT ST_IsValid(ST_GeomFromText(:wkt, 4326))"),
+                {"wkt": geometry_wkt.data},
+            ):
+                raise ValueError("invalid geometry topology")
         except (KeyError, ValidationError, ValueError) as error:
             field_path = None
             if isinstance(error, ValidationError):
@@ -76,7 +93,7 @@ class CanonicalRepository:
                 transform_version=TRANSFORM_VERSION,
                 payload_json=payload,
                 lineage_json=lineage,
-                geometry=_geometry_wkt(record),
+                geometry=geometry_wkt,
                 valid_at=valid_at,
                 fetched_at=source.fetched_at,
             )
