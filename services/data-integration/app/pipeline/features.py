@@ -27,9 +27,7 @@ from app.pipeline.corridor import RouteSample, geodesic_distance_m
 SCHEMA_PATH = Path(__file__).with_name("feature_schema.yaml")
 TRANSIT_MODES = {"FLIGHT", "TRAIN", "BUS", "MULTIMODAL"}
 UNUSABLE = {"STALE", "UNAVAILABLE"}
-# The v1 proposal marks these non-nullable; an unavailable alert source cannot
-# prove "no closure", so they stay null until module 06 accepts nullable flags.
-PRODUCER_NULLABLE = (
+OFFICIAL_ALERT_FEATURES = (
     "corridor_official_closure_active",
     "corridor_official_evacuation_active",
     "corridor_extreme_alert_active",
@@ -151,7 +149,7 @@ def _active_at(event: DisasterEvent, at: datetime) -> bool:
 def _disasters(inputs: FeatureInputs) -> dict[str, FeatureValue]:
     events = _before_cutoff(inputs.disasters_in_corridor, inputs.recommendation_at)
     if events is None:
-        return dict.fromkeys([*PRODUCER_NULLABLE, "hazard_intersection_fraction"])
+        return dict.fromkeys([*OFFICIAL_ALERT_FEATURES, "hazard_intersection_fraction"])
     start, end = inputs.samples[0].eta, inputs.samples[-1].eta
     official = [
         e
@@ -254,7 +252,7 @@ def build_features(inputs: FeatureInputs, policy: FeaturePolicy) -> FeatureVecto
     for feature in schema["features"]:
         name = feature["name"]
         value = computed.pop(name)
-        if value is None and not feature["nullable"] and name not in PRODUCER_NULLABLE:
+        if value is None and not feature["nullable"]:
             raise ValueError(f"{name} is not nullable")
         values[name] = value
     if computed:

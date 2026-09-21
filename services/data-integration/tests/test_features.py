@@ -206,3 +206,16 @@ def test_build_is_deterministic() -> None:
     first = build(weather=[bangkok_weather()], disasters=[usgs_event()])
     second = build(weather=[bangkok_weather()], disasters=[usgs_event()])
     assert json.dumps(first.values) == json.dumps(second.values)
+
+
+def test_schema_carries_lead_decision_on_official_alerts() -> None:
+    """Issues #43 and #44: nullable alert flags; evacuation is not critical yet."""
+    features = {f["name"]: f for f in feature_schema()["features"]}
+    for name in (
+        "corridor_official_closure_active",
+        "corridor_official_evacuation_active",
+        "corridor_extreme_alert_active",
+    ):
+        assert features[name]["nullable"] is True
+    assert features["corridor_official_evacuation_active"]["critical"] is False
+    assert features["corridor_official_closure_active"]["critical"] is True
