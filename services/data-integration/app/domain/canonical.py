@@ -4,6 +4,14 @@ from typing import Literal, Self
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, FiniteFloat, model_validator
 
+from smart_travel_contracts.integration_inputs import (
+    disaster_event_schema,
+    emergency_poi_schema,
+    route_candidate_schema,
+    transport_status_schema,
+    weather_schema,
+)
+
 
 class StrictRecord(BaseModel):
     model_config = ConfigDict(extra="forbid", validate_assignment=True)
@@ -67,7 +75,7 @@ class DataQuality(StrictRecord):
     coverage: FiniteFloat | None = Field(default=None, ge=0, le=1)
     completeness: FiniteFloat | None = Field(default=None, ge=0, le=1)
     freshness_seconds: int | None = Field(default=None, ge=0)
-    conflicts: list[str] = Field(default_factory=list)
+    conflicts: list["QualityConflict"] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
@@ -75,6 +83,14 @@ class DataQuality(StrictRecord):
         if self.score is not None and not self.score_version:
             raise ValueError("score requires score_version")
         return self
+
+
+class QualityConflict(StrictRecord):
+    field_path: str
+    source_ids: list[str] = Field(min_length=2)
+    resolution: (
+        Literal["HIGHEST_AUTHORITY", "MOST_RECENT", "MOST_CONSERVATIVE", "UNRESOLVED"] | None
+    ) = None
 
 
 Severity = Literal["INFO", "MINOR", "MODERATE", "SEVERE", "EXTREME", "UNKNOWN"]
@@ -219,8 +235,8 @@ class TransportStatus(StrictRecord):
 
 
 class EmergencyPlace(StrictRecord):
-    place_id: str = Field(min_length=1)
-    place_type: Literal[
+    poi_id: str = Field(min_length=1)
+    poi_type: Literal[
         "HOSPITAL",
         "CLINIC",
         "DOCTOR",
@@ -228,7 +244,9 @@ class EmergencyPlace(StrictRecord):
         "POLICE",
         "FIRE_STATION",
         "EMBASSY",
+        "CONSULATE",
         "TOWNHALL",
+        "SHELTER",
         "OTHER",
     ]
     name: str | None = None
@@ -238,6 +256,7 @@ class EmergencyPlace(StrictRecord):
     phone: str | None = None
     website: str | None = None
     opening_hours: str | None = None
+    open_now: bool | None = None
     provider_category: str | None = None
     quality: DataQuality
     source: SourceProvenance
@@ -252,4 +271,11 @@ RECORD_MODELS: dict[str, type[StrictRecord]] = {
     "route": RouteCandidate,
     "transport": TransportStatus,
     "place": EmergencyPlace,
+}
+GENERATED_MODELS: dict[str, type[BaseModel]] = {
+    "weather": weather_schema.WeatherForecastPoint,
+    "disaster": disaster_event_schema.DisasterEvent,
+    "route": route_candidate_schema.RouteCandidate,
+    "transport": transport_status_schema.TransportStatus,
+    "place": emergency_poi_schema.EmergencyPoi,
 }

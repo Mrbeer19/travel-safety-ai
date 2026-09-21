@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.domain.canonical import RECORD_MODELS, RecordModel
+from app.domain.canonical import GENERATED_MODELS, RECORD_MODELS, RecordModel
 from app.pipeline.normalize import TRANSFORM_VERSION, geometry_of, normalize_record, record_sources
 from app.repositories.models import CanonicalRecord, Quarantine
 from app.repositories.snapshot_repo import canonical_hash
@@ -40,6 +40,7 @@ class CanonicalRepository:
             encoded = json.dumps(raw, sort_keys=True, default=str, allow_nan=True)
             source_hash = "sha256:" + hashlib.sha256(encoded.encode()).hexdigest()
         try:
+            GENERATED_MODELS[kind].model_validate(raw)
             record = RECORD_MODELS[kind].model_validate(raw)
             payload, lineage = normalize_record(record)
         except (KeyError, ValidationError, ValueError) as error:

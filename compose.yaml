@@ -107,6 +107,8 @@ services:
     image: smart-travel-data-integration:runtime
     build:
       context: ./services/data-integration
+      additional_contexts:
+        contracts: ./packages/contracts/generated/python
       target: runtime
     profiles: [app]
     env_file: .env

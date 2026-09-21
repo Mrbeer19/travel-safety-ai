@@ -29,33 +29,14 @@ from app.pipeline.normalize import (
 )
 from app.repositories.canonical_repo import CanonicalRepository
 from app.repositories.models import CanonicalRecord, Quarantine
+from app.repositories.snapshot_repo import canonical_hash
 
 
 def usgs_record() -> dict:
-    return {
-        "event_id": "us7000ti1p",
-        "event_type": "EARTHQUAKE",
-        "title": "M 6.5 - 169 km W of Nikolski, Alaska",
-        "severity": "UNKNOWN",
-        "geometry": {"type": "Point", "coordinates": [-171.3756, 52.8594]},
-        "effective_at": "2026-09-17T14:19:52.210Z",
-        "official": True,
-        "magnitude": 6.5,
-        "magnitude_unit": "Mw",
-        "depth_km": 98.0,
-        "quality": {"status": "FRESH"},
-        "source": {
-            "source_id": "usgs:us7000ti1p",
-            "provider": "USGS",
-            "provider_record_id": "us7000ti1p",
-            "authority": "OFFICIAL",
-            "source_url": "https://earthquake.usgs.gov/earthquakes/eventpage/us7000ti1p",
-            "observed_at": "2026-09-17T14:19:52.210Z",
-            "published_at": "2026-09-18T14:29:54.553Z",
-            "fetched_at": "2026-09-19T07:45:38Z",
-            "schema_version": "1.0.0",
-        },
-    }
+    path = Path(__file__).parent / "fixtures" / "m04-usgs-event.json"
+    fixture = json.loads(path.read_text(encoding="utf-8"))
+    assert fixture["_provenance"]["http_status"] == 200
+    return fixture["records"][0]
 
 
 def test_pure_transforms_preserve_null_and_zero() -> None:
@@ -121,11 +102,13 @@ def test_raw_route_to_plural_contract_provenance() -> None:
 
 async def test_current_m04_route_sample_ingests_with_all_sources(isolated_database: str) -> None:
     """M04 handoff route from ORS real-sanitized capture, merged in main commit 3353f15."""
-    sample = json.loads(
+    fixture = json.loads(
         (Path(__file__).parent / "fixtures" / "m04-route-candidates.json").read_text(
             encoding="utf-8"
         )
-    )["records"][0]
+    )
+    assert fixture["_provenance"]["http_status"] == 200
+    sample = fixture["records"][0]
     assert sample["sources"] and "source" not in sample
     engine = create_async_engine(isolated_database)
     try:
@@ -139,6 +122,34 @@ async def test_current_m04_route_sample_ingests_with_all_sources(isolated_databa
             assert stored.lineage_json["distance_m"]["source_ids"] == [
                 sample["sources"][0]["source_id"]
             ]
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.parametrize(
+    "kind,filename",
+    [
+        ("weather", "m04-weather-forecast-points.json"),
+        ("transport", "m04-transport-statuses.json"),
+        ("place", "m04-emergency-places.json"),
+    ],
+)
+async def test_other_current_m04_samples_ingest(
+    isolated_database: str, kind: str, filename: str
+) -> None:
+    fixture = json.loads(
+        (Path(__file__).parent / "fixtures" / filename).read_text(encoding="utf-8")
+    )
+    assert fixture["_provenance"]["http_status"] == 200
+    sample = fixture["records"][0]
+    engine = create_async_engine(isolated_database)
+    try:
+        async with AsyncSession(engine, expire_on_commit=False) as session:
+            stored = await CanonicalRepository(session).ingest(kind, sample)
+            await session.commit()
+            assert stored is not None
+            assert stored.record_type == kind
+            assert stored.payload_json["source"]["source_id"] == sample["source"]["source_id"]
     finally:
         await engine.dispose()
 
@@ -202,7 +213,7 @@ async def test_canonical_upsert_keeps_lineage_and_geometry(isolated_database: st
             assert first is not None and second is not None
             assert first.id == second.id
             assert first.payload_json["canonical_geometry"]["coordinates"] == [-171.3756, 52.8594]
-            assert first.lineage_json["magnitude"]["source_id"] == "usgs:us7000ti1p"
+            assert first.lineage_json["magnitude"]["source_id"] == "usgs_earthquake:us7000ti1p"
             assert first.lineage_json["canonical_geometry.coordinates.0"]["source_path"] == (
                 "geometry.coordinates.0"
             )
@@ -228,5 +239,23 @@ async def test_copied_observation_time_is_quarantined(isolated_database: str) ->
             assert await CanonicalRepository(session).ingest("disaster", payload) is None
             await session.commit()
             assert await session.scalar(select(func.count()).select_from(Quarantine)) == before + 1
+    finally:
+        await engine.dispose()
+
+
+async def test_generated_required_field_is_quarantined(isolated_database: str) -> None:
+    sample = usgs_record()
+    del sample["quality"]["score_version"]
+    engine = create_async_engine(isolated_database)
+    try:
+        async with AsyncSession(engine) as session:
+            assert await CanonicalRepository(session).ingest("disaster", sample) is None
+            await session.flush()
+            error = (
+                await session.execute(
+                    select(Quarantine).where(Quarantine.source_hash == canonical_hash(sample))
+                )
+            ).scalar_one()
+            assert error.field_path == "quality.score_version"
     finally:
         await engine.dispose()

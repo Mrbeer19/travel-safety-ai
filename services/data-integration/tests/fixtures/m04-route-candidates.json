@@ -1,4 +1,12 @@
 {
+  "_provenance": {
+    "fixture_id": "ors_directions_bangkok_ayutthaya",
+    "source_url": "https://api.openrouteservice.org/v2/directions/driving-car/geojson",
+    "captured_at": "2026-09-20T07:50:14Z",
+    "http_status": 200,
+    "license": "openrouteservice terms; upstream data © OpenStreetMap contributors (ODbL)",
+    "redaction": "no credential in the body (the key travels in the Authorization header, which is not part of the payload); public infrastructure records only, no PII"
+  },
   "_note": "Geometry and steps are truncated here for readability - the real response carries 442 positions and 20 steps. exposure is null and risk_level is UNKNOWN because module 04 has no view on hazards; the contract now enforces that an unassessed route cannot claim a risk level.",
   "_generated_from": "real captured provider responses in services/external-data/tests/fixtures/real-sanitized/",
   "_warning": "Sample output, not a contract. packages/contracts is the contract. Timestamps are from generation time and will look stale.",
