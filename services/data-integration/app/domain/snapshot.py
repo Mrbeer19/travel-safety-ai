@@ -76,3 +76,20 @@ class IntegratedTravelContext(StrictRecord):
         if any(not re.fullmatch(RECORD_ID, v) or len(v) > 256 for v in values):
             raise ValueError("source_ids must be RecordId values")
         return values
+
+
+class Evidence(StrictRecord):
+    weather: list[WeatherForecastPoint] | None
+    disaster_events: list[DisasterEvent] | None
+    transport: list[TransportStatus] | None
+
+
+class SnapshotCreateRequest(StrictRecord):
+    request_id: UUID
+    trip_id: UUID
+    supersedes_snapshot_id: UUID | None = None
+    travel_window: TravelWindow
+    recommendation_at: AwareDatetime
+    route: RouteCandidate
+    evidence: Evidence
+    source_quality: dict[str, DataQuality]

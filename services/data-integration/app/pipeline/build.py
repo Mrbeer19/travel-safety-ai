@@ -14,13 +14,14 @@ from app.domain.canonical import (
     TransportStatus,
     WeatherForecastPoint,
 )
-from app.domain.snapshot import IntegratedTravelContext, TravelWindow
-from app.pipeline.corridor import sample_route
+from app.domain.snapshot import IntegratedTravelContext, SnapshotCreateRequest, TravelWindow
+from app.pipeline.corridor import RouteSample, sample_route
 from app.pipeline.dedup import candidate_links, exact_clusters, resolve_field
 from app.pipeline.features import (
     TRANSIT_MODES,
     FeatureInputs,
     FeaturePolicy,
+    FeatureVector,
     before_cutoff,
     build_features,
 )
@@ -45,6 +46,16 @@ class RouteEvidence:
     disasters: list[DisasterEvent] | None
     transport: list[TransportStatus] | None
     source_quality: dict[str, DataQuality]
+
+
+def evidence_from_request(body: SnapshotCreateRequest) -> RouteEvidence:
+    return RouteEvidence(
+        body.route,
+        body.evidence.weather,
+        body.evidence.disaster_events,
+        body.evidence.transport,
+        body.source_quality,
+    )
 
 
 def _disaster_conflicts(
@@ -75,6 +86,48 @@ def _disaster_conflicts(
     return comparable, conflicts
 
 
+def compute_route_features(
+    evidence: RouteEvidence,
+    *,
+    travel_window: TravelWindow,
+    recommendation_at: datetime,
+    settings: Settings,
+) -> tuple[RouteEvidence, list[RouteSample], FeatureVector]:
+    """The one feature path shared by the online API and the offline batch CLI."""
+    route = evidence.route
+    # Records learned after the recommendation stay out of features and the snapshot alike.
+    known = RouteEvidence(
+        route,
+        before_cutoff(evidence.weather, recommendation_at),
+        before_cutoff(evidence.disasters, recommendation_at),
+        before_cutoff(evidence.transport, recommendation_at),
+        evidence.source_quality,
+    )
+    samples = sample_route(
+        route.geometry,
+        departure_at=travel_window.starts_at,
+        duration_seconds=route.duration_seconds,
+        max_spacing_m=settings.route_sample_spacing_m,
+    )
+    features = build_features(
+        FeatureInputs(
+            route,
+            samples,
+            recommendation_at,
+            known.weather,
+            known.disasters,
+            known.transport,
+            known.source_quality,
+        ),
+        FeaturePolicy(
+            weather_radius_m=settings.corridor_radius_m,
+            weather_time_tolerance_seconds=settings.weather_time_tolerance_seconds,
+            transport_time_tolerance_seconds=settings.transport_time_tolerance_seconds,
+        ),
+    )
+    return known, samples, features
+
+
 async def _geometry_valid(session: AsyncSession, evidence: RouteEvidence) -> bool:
     shapes = [evidence.route.geometry.model_dump(mode="json")]
     shapes += [
@@ -102,35 +155,11 @@ async def build_route_snapshot(
     created_at: datetime,
 ) -> IntegratedTravelContext:
     route = evidence.route
-    # Records learned after the recommendation stay out of features and the snapshot alike.
-    evidence = RouteEvidence(
-        route,
-        before_cutoff(evidence.weather, recommendation_at),
-        before_cutoff(evidence.disasters, recommendation_at),
-        before_cutoff(evidence.transport, recommendation_at),
-        evidence.source_quality,
-    )
-    samples = sample_route(
-        route.geometry,
-        departure_at=travel_window.starts_at,
-        duration_seconds=route.duration_seconds,
-        max_spacing_m=settings.route_sample_spacing_m,
-    )
-    features = build_features(
-        FeatureInputs(
-            route,
-            samples,
-            recommendation_at,
-            evidence.weather,
-            evidence.disasters,
-            evidence.transport,
-            evidence.source_quality,
-        ),
-        FeaturePolicy(
-            weather_radius_m=settings.corridor_radius_m,
-            weather_time_tolerance_seconds=settings.weather_time_tolerance_seconds,
-            transport_time_tolerance_seconds=settings.transport_time_tolerance_seconds,
-        ),
+    evidence, samples, features = compute_route_features(
+        evidence,
+        travel_window=travel_window,
+        recommendation_at=recommendation_at,
+        settings=settings,
     )
     required = {"route", "weather", "disaster"}
     if route.mode in TRANSIT_MODES:

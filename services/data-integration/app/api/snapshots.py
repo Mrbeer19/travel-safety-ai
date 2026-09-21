@@ -6,23 +6,16 @@ from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
-from pydantic import AwareDatetime, Field, ValidationError
+from pydantic import Field, ValidationError
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.api.deps import InternalAuth
 from app.api.envelope import error, success
-from app.domain.canonical import (
-    DataQuality,
-    DisasterEvent,
-    RouteCandidate,
-    StrictRecord,
-    TransportStatus,
-    WeatherForecastPoint,
-)
+from app.domain.canonical import StrictRecord
 from app.domain.errors import SnapshotConflictError, SnapshotNotFoundError
-from app.domain.snapshot import IntegratedTravelContext, TravelWindow
-from app.pipeline.build import RouteEvidence, build_route_snapshot
+from app.domain.snapshot import IntegratedTravelContext, SnapshotCreateRequest
+from app.pipeline.build import build_route_snapshot, evidence_from_request
 from app.pipeline.snapshot import SNAPSHOT_SCHEMA_VERSION, UNHASHED
 from app.repositories.db import build_session_factory, unit_of_work
 from app.repositories.models import Snapshot
@@ -30,23 +23,6 @@ from app.repositories.snapshot_repo import SnapshotRepository, canonical_hash
 from app.settings import get_settings
 
 router = APIRouter(prefix="/internal/v1/snapshots")
-
-
-class Evidence(StrictRecord):
-    weather: list[WeatherForecastPoint] | None
-    disaster_events: list[DisasterEvent] | None
-    transport: list[TransportStatus] | None
-
-
-class SnapshotCreateRequest(StrictRecord):
-    request_id: UUID
-    trip_id: UUID
-    supersedes_snapshot_id: UUID | None = None
-    travel_window: TravelWindow
-    recommendation_at: AwareDatetime
-    route: RouteCandidate
-    evidence: Evidence
-    source_quality: dict[str, DataQuality]
 
 
 class SnapshotValidateRequest(StrictRecord):
@@ -88,13 +64,7 @@ async def create_snapshot(
                 supersedes_snapshot_id=body.supersedes_snapshot_id,
                 travel_window=body.travel_window,
                 recommendation_at=body.recommendation_at,
-                evidence=RouteEvidence(
-                    body.route,
-                    body.evidence.weather,
-                    body.evidence.disaster_events,
-                    body.evidence.transport,
-                    body.source_quality,
-                ),
+                evidence=evidence_from_request(body),
                 settings=get_settings(),
                 created_at=datetime.now(UTC),
             )
