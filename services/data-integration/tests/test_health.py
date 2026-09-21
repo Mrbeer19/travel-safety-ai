@@ -4,6 +4,7 @@ import secrets
 
 import httpx
 import pytest
+from sqlalchemy import text
 
 from app.main import create_app
 from app.settings import get_settings
@@ -49,5 +50,10 @@ async def test_readiness_checks_real_database(
                 headers={"Authorization": f"Bearer {token.get_secret_value()}"},
             )
             assert result.status_code == 200
-            assert result.json()["data"]["snapshot_count"] == 0
+            # The session database is shared, so compare with the table rather than assume empty.
+            async with app.state.engine.connect() as connection:
+                stored = (
+                    await connection.execute(text("SELECT count(*) FROM integration.snapshots"))
+                ).scalar_one()
+            assert result.json()["data"]["snapshot_count"] == stored
     get_settings.cache_clear()
