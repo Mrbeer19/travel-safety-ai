@@ -1,6 +1,6 @@
 """Quality gates retain explicit unknown, stale, and conflicting evidence."""
 
-from app.domain.canonical import DataQuality
+from app.domain.canonical import DataQuality, QualityConflict
 from app.pipeline.quality import QualityPolicy, summarize_quality
 
 POLICY = QualityPolicy("review-1", 0.8, 0.7, 3600)
@@ -12,7 +12,7 @@ def quality(
     score: float | None = 0.9,
     coverage: float | None = 0.9,
     freshness_seconds: int | None = 60,
-    conflicts: list[str] | None = None,
+    conflicts: list[QualityConflict] | None = None,
 ) -> DataQuality:
     return DataQuality(
         status=status,
@@ -57,7 +57,16 @@ def test_unknown_score_or_stale_source_degrades() -> None:
 def test_conflict_preserved_and_clean_sources_pass() -> None:
     sources = {"weather": quality(), "route": quality()}
     assert summarize(sources).gate == "PASS"
-    sources["weather"] = quality(status="CONFLICTING", conflicts=["severity"])
+    sources["weather"] = quality(
+        status="CONFLICTING",
+        conflicts=[
+            QualityConflict(
+                field_path="severity",
+                source_ids=["usgs:captured-event", "official:conflicting-event"],
+                resolution="UNRESOLVED",
+            )
+        ],
+    )
     result = summarize(sources)
     assert result.gate == "DEGRADED"
     assert result.conflict_count == 1
