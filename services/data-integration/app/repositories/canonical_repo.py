@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.domain.canonical import GENERATED_MODELS, RECORD_MODELS, RecordModel
 from app.pipeline.normalize import TRANSFORM_VERSION, geometry_of, normalize_record, record_sources
 from app.repositories.models import CanonicalRecord, Quarantine
+from app.repositories.quarantine_repo import QuarantineRepository
 from app.repositories.snapshot_repo import canonical_hash
 
 
@@ -64,15 +65,19 @@ class CanonicalRepository:
             field_path = None
             if isinstance(error, ValidationError):
                 field_path = ".".join(str(part) for part in error.errors()[0]["loc"])
-            self.session.add(
-                Quarantine(
-                    source_hash=source_hash,
-                    error_code="INVALID_INPUT",
-                    field_path=field_path,
-                    raw_content=None,
+            # A replayed invalid record is quarantined once, so backfills can be rerun.
+            seen = await self.session.scalar(
+                select(Quarantine.id)
+                .where(
+                    Quarantine.source_hash == source_hash,
+                    Quarantine.error_code == "INVALID_INPUT",
                 )
+                .limit(1)
             )
-            await self.session.flush()
+            if seen is None:
+                await QuarantineRepository(self.session).record(
+                    source_hash=source_hash, error_code="INVALID_INPUT", field_path=field_path
+                )
             return None
         content_hash = payload.pop("canonical_content_hash")
         source = record_sources(record)[0]
