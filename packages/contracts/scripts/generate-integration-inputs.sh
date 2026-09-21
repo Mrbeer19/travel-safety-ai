@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Generate selected integration input models from the canonical JSON Schemas.
 set -euo pipefail
+export PYTHONUTF8=1
+export PYTHONIOENCODING=utf-8
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root="$(dirname "$here")"
@@ -27,6 +29,7 @@ uvx --python 3.12 --from datamodel-code-generator==0.28.5 datamodel-codegen \
   --field-constraints
 
 mkdir -p "$output"
-for name in __init__.py primitives_schema.py enums_schema.py; do
+for name in __init__.py primitives_schema.py enums_schema.py geojson_schema.py \
+  source_provenance_schema.py data_quality_schema.py; do
   cp "$models/$name" "$output/$name"
 done
