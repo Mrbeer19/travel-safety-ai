@@ -7,13 +7,12 @@ USGS HTTP 200 2026-09-19T07:45:38Z; Open-Meteo Fiji HTTP 200
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
-from geoalchemy2.elements import WKTElement
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-
 from app.domain.canonical import GeoLineString
 from app.pipeline.corridor import sample_route
 from app.pipeline.spatial import geometry_health, hazard_ids_in_corridor, point_within_corridor
 from app.repositories.models import CanonicalRecord
+from geoalchemy2.elements import WKTElement
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 
 async def test_postgis_geography_corridor_crosses_dateline(isolated_database: str) -> None:

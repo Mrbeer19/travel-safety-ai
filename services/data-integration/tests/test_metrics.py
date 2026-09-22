@@ -13,11 +13,10 @@ from uuid import uuid4
 
 import httpx
 import pytest
-from prometheus_client import REGISTRY
-from sqlalchemy.engine import make_url
-
 from app.main import create_app
 from app.settings import get_settings
+from prometheus_client import REGISTRY
+from sqlalchemy.engine import make_url
 
 FIXTURES = Path(__file__).parent / "fixtures"
 

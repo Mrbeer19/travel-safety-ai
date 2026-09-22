@@ -24,9 +24,6 @@ from zoneinfo import ZoneInfo
 import httpx
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import create_engine, select, text
-from sqlalchemy.engine import make_url
-
 from app.domain.canonical import GeoLineString
 from app.main import create_app
 from app.pipeline.corridor import sample_route
@@ -35,6 +32,8 @@ from app.repositories.canonical_repo import CanonicalRepository
 from app.repositories.db import build_engine, build_session_factory, unit_of_work
 from app.repositories.models import CanonicalRecord
 from app.settings import get_settings
+from sqlalchemy import create_engine, select, text
+from sqlalchemy.engine import make_url
 
 FIXTURES = Path(__file__).parent / "fixtures"
 MODULE_04 = os.environ.get("MODULE_04_URL", "http://external-data:8002")

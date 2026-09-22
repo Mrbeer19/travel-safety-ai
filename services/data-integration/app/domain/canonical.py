@@ -3,7 +3,6 @@
 from typing import Literal, Self
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, FiniteFloat, model_validator
-
 from smart_travel_contracts.integration_inputs import (
     disaster_event_schema,
     emergency_poi_schema,

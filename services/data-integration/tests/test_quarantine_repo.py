@@ -4,14 +4,13 @@ from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import select, update
-from sqlalchemy.exc import DBAPIError
-
 from app.domain.errors import SnapshotConflictError
 from app.repositories.db import build_engine, build_session_factory, unit_of_work
 from app.repositories.models import Quarantine, Snapshot
 from app.repositories.quarantine_repo import QuarantineRepository
 from app.repositories.snapshot_repo import SnapshotRepository
+from sqlalchemy import select, update
+from sqlalchemy.exc import DBAPIError
 
 
 @pytest.mark.asyncio

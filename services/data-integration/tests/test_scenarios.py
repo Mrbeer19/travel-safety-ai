@@ -15,14 +15,13 @@ from uuid import uuid4
 
 import httpx
 import pytest
-from sqlalchemy import func, select
-from sqlalchemy.engine import make_url
-
 from app.cli.operations import backfill
 from app.main import create_app
 from app.repositories.db import build_engine, build_session_factory, unit_of_work
 from app.repositories.models import CanonicalRecord
 from app.settings import get_settings
+from sqlalchemy import func, select
+from sqlalchemy.engine import make_url
 
 FIXTURES = Path(__file__).parent / "fixtures"
 LINE = [[100.495865, 13.743409], [100.505865, 13.743409]]

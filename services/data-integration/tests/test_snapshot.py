@@ -13,8 +13,6 @@ from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-
 from app.domain.canonical import (
     DisasterEvent,
     GeoLineString,
@@ -31,6 +29,7 @@ from app.pipeline.snapshot import assemble_snapshot, quality_status
 from app.pipeline.spatial import corridor_buffer_geojson
 from app.repositories.db import build_engine, build_session_factory, unit_of_work
 from app.repositories.snapshot_repo import SnapshotRepository
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 FIXTURES = Path(__file__).parent / "fixtures"
 DEPARTURE = datetime(2026, 9, 19, tzinfo=UTC)

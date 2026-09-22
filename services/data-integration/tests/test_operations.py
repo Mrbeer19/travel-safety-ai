@@ -13,16 +13,15 @@ from uuid import uuid4
 
 import httpx
 import pytest
-from prometheus_client import REGISTRY
-from sqlalchemy import func, select, update
-from sqlalchemy.engine import make_url
-
 from app.cli.operations import backfill, purge_quarantine, rebuild
 from app.main import create_app
 from app.repositories.db import build_engine, build_session_factory, unit_of_work
 from app.repositories.models import CanonicalRecord, Quarantine
 from app.repositories.snapshot_repo import SnapshotRepository
 from app.settings import get_settings
+from prometheus_client import REGISTRY
+from sqlalchemy import func, select, update
+from sqlalchemy.engine import make_url
 
 FIXTURES = Path(__file__).parent / "fixtures"
 

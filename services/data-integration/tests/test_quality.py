@@ -9,7 +9,6 @@ import json
 from pathlib import Path
 
 import pytest
-
 from app.domain.canonical import DataQuality, QualityConflict
 from app.pipeline.quality import (
     SCORE_VERSION,

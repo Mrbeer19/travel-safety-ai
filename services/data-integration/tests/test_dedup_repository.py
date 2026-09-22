@@ -6,15 +6,15 @@ from datetime import datetime
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from test_dedup import captured_event
-
 from app.domain.errors import SnapshotConflictError
 from app.pipeline.dedup import candidate_links, resolve_field
 from app.repositories.dedup_repo import DedupRepository
 from app.repositories.models import CanonicalRecord, DedupCluster
 from app.repositories.snapshot_repo import canonical_hash
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+
+from test_dedup import captured_event
 
 
 async def test_concurrent_cluster_upserts_keep_one_row_and_all_evidence(

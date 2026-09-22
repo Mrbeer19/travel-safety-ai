@@ -8,7 +8,6 @@ The test route between Fiji points is a derived geometry, never served at runtim
 from datetime import UTC, datetime, timedelta
 
 import pytest
-
 from app.domain.canonical import GeoLineString
 from app.pipeline.corridor import geodesic_distance_m, sample_route, split_dateline
 

@@ -5,13 +5,13 @@ Rows come from tests/load_seed.py (captured USGS payload on a synthetic grid).
 
 import json
 
-from load_seed import ROUTE, WINDOW_END, WINDOW_START, remove_seed, seed_disasters
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-
 from app.domain.canonical import GeoLineString
 from app.pipeline.corridor import sample_route
 from app.pipeline.spatial import HAZARD_QUERY, corridor_geojson, hazard_ids_in_corridor
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+
+from load_seed import ROUTE, WINDOW_END, WINDOW_START, remove_seed, seed_disasters
 
 
 def _index_names(plan: object) -> set[str]:

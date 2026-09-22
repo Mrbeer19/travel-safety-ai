@@ -8,10 +8,9 @@ from uuid import uuid4
 import pytest
 from alembic import command
 from alembic.config import Config
+from app.settings import get_settings
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
-
-from app.settings import get_settings
 
 
 @pytest.fixture(scope="session")

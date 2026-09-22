@@ -11,9 +11,6 @@ from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
-from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-
 from app.domain.canonical import RouteCandidate, TransportStatus
 from app.pipeline.normalize import (
     canonicalize_value,
@@ -30,6 +27,8 @@ from app.pipeline.normalize import (
 from app.repositories.canonical_repo import CanonicalRepository
 from app.repositories.models import CanonicalRecord, Quarantine
 from app.repositories.snapshot_repo import canonical_hash
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 
 def usgs_record() -> dict:

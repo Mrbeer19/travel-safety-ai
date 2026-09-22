@@ -4,10 +4,9 @@ import secrets
 
 import httpx
 import pytest
-from sqlalchemy import text
-
 from app.main import create_app
 from app.settings import get_settings
+from sqlalchemy import text
 
 
 @pytest.mark.asyncio

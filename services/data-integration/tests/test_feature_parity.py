@@ -14,11 +14,10 @@ from uuid import uuid4
 
 import httpx
 import pytest
-from sqlalchemy.engine import make_url
-
 from app.cli.features import BatchInputError, main, run
 from app.main import create_app
 from app.settings import get_settings
+from sqlalchemy.engine import make_url
 
 FIXTURES = Path(__file__).parent / "fixtures"
 LINE = [[100.495865, 13.743409], [100.505865, 13.743409]]
