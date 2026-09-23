@@ -273,8 +273,30 @@ async def start(
 
     reported = accepted.get("status")
     if isinstance(reported, str) and reported in machine.ALL_STATUSES and reported != "QUEUED":
-        requests_repo.advance(row, status=reported)
+        if reported in {"COMPLETED", "PARTIAL"}:
+            recommendations = RecommendationClient(agent._client, settings)
+            remote = (await agent.get_run(agent_run_id)) if agent_run_id else accepted
+            return await _complete(
+                session,
+                redis,
+                settings,
+                row=row,
+                remote=remote or accepted,
+                status=reported,
+                recommendations=recommendations,
+                correlation_id=correlation_id,
+            )
+        requests_repo.advance(
+            row,
+            status=reported,
+            error_code="INTERNAL_ERROR" if reported == "FAILED" else None,
+            error_message="The assessment pipeline could not be completed."
+            if reported == "FAILED"
+            else None,
+        )
         await session.flush()
+        if machine.is_terminal(row.status):
+            await announce_terminal(redis, settings, row, correlation_id=correlation_id)
 
     return row
 
@@ -297,7 +319,10 @@ async def reconcile(
     Every failure to reach the agent leaves the stored state alone. A run whose progress cannot be
     refreshed is still a run whose last known progress is true.
     """
-    if machine.is_terminal(row.status) or row.agent_run_id is None:
+    if (
+        machine.is_terminal(row.status)
+        and (row.status not in {"COMPLETED", "PARTIAL"} or row.recommendation_id is not None)
+    ) or row.agent_run_id is None:
         return row
 
     try:

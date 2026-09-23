@@ -23,7 +23,7 @@ a cancelled run is observable only by polling `GET /internal/v1/runs/{id}`, not 
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from typing import Annotated
+from typing import Annotated, Any, cast
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException
@@ -171,23 +171,31 @@ async def _publish_terminal_event(runtime: AppRuntime, state: AgentState) -> Non
 
 @router.post("", response_model=RunRef, dependencies=[Depends(require_internal_auth)])
 async def create_run(
-    payload: CreateRunRequest, runtime: Annotated[AppRuntime, Depends(get_runtime)]
+    payload: CreateRunRequest | TravelRequest, runtime: Annotated[AppRuntime, Depends(get_runtime)]
 ) -> RunRef:
     settings = runtime.settings
-    request = payload.travel_request
     now = datetime.now(UTC)
+
+    if isinstance(payload, CreateRunRequest):
+        request = payload.travel_request
+        correlation_id = payload.correlation_id
+        user_scope_hash = payload.user_scope_hash
+        approved_context_refs = payload.approved_context_refs
+    else:
+        request = payload
+        correlation_id = request.request_id
+        user_scope_hash = ""
+        approved_context_refs = []
 
     state = AgentState(
         identity=IdentitySection(
             request_id=request.request_id,
-            correlation_id=payload.correlation_id,
+            correlation_id=correlation_id,
             trip_id=request.trip_id,
             conversation_id=request.conversation_id,
-            user_scope_hash=payload.user_scope_hash,
+            user_scope_hash=user_scope_hash,
         ),
-        input=InputSection(
-            travel_request=request, approved_context_refs=payload.approved_context_refs
-        ),
+        input=InputSection(travel_request=request, approved_context_refs=approved_context_refs),
         plan=PlanSection(graph_version=GRAPH_VERSION),
         control=ControlSection(
             started_at=now,
@@ -231,13 +239,26 @@ async def get_run(
     row = await runtime.runs.get(request_id)
     if row is None:
         raise HTTPException(status_code=404, detail="NOT_FOUND")
+    final_state: dict[str, Any] = cast(dict[str, Any], row.get("final_state") or {})
+    result: dict[str, Any] = cast(dict[str, Any], final_state.get("result", {}))
+    quality: dict[str, Any] = cast(dict[str, Any], final_state.get("quality", {}))
+    control: dict[str, Any] = cast(dict[str, Any], final_state.get("control", {}))
+    errors = cast(list[str], control.get("errors", []))
     return {
         "request_id": str(request_id),
         "status": row["status"],
         "graph_version": row["graph_version"],
-        # Already a redacted AgentState (no chain-of-thought, no raw provider payload) — see
-        # app/graph/state.py's own module docstring for why that is true by construction.
-        "state": row["final_state"],
+        "recommendation_id": result.get("recommendation_id"),
+        "degraded_services": quality.get("degraded_services", []),
+        "stage": control.get("stage"),
+        "percent": (
+            100
+            if row["status"] in (RunStatus.COMPLETED.value, RunStatus.PARTIAL.value)
+            else (control.get("step_count", 0) * 20)
+        ),
+        "error_code": errors[-1] if errors else None,
+        "error_message": "Assessment failed" if row["status"] == RunStatus.FAILED.value else None,
+        "state": final_state,
     }
 
 

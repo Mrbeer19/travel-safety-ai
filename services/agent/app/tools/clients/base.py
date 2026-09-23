@@ -19,7 +19,7 @@ from __future__ import annotations
 import hashlib
 import time
 from dataclasses import dataclass
-from typing import TypeVar
+from typing import Any, TypeVar
 from uuid import UUID
 
 import httpx
@@ -105,7 +105,11 @@ class ToolClientBase:
             "X-Request-ID": str(request_id),
             "X-Correlation-ID": str(correlation_id),
             "traceparent": traceparent,
-            "X-Contract-Version": self._contract_version,
+            "X-Contract-Version": (
+                self._contract_version.split(".")[0]
+                if "." in self._contract_version
+                else self._contract_version
+            ),
         }
         if self._token is not None:
             headers["Authorization"] = f"Bearer {self._token}"
@@ -128,20 +132,26 @@ class ToolClientBase:
     async def _post(
         self,
         path: str,
-        payload: BaseModel,
-        response_model: type[ResponseT],
+        payload: BaseModel | dict[str, Any],
+        response_model: Any = dict,
         *,
         request_id: UUID,
         correlation_id: UUID,
         traceparent: str,
         idempotency_key: str | None = None,
-    ) -> tuple[ResponseT, ToolCallRecord]:
+    ) -> tuple[Any, ToolCallRecord]:
+        import json
+
         headers = self._headers(request_id, correlation_id, traceparent, idempotency_key)
-        body = payload.model_dump_json()
-        input_hash = _hash_request(payload)
+        if isinstance(payload, BaseModel):
+            body = payload.model_dump_json()
+            input_hash = _hash_request(payload)
+        else:
+            body = json.dumps(payload, default=str)
+            input_hash = f"sha256:{hashlib.sha256(body.encode('utf-8')).hexdigest()}"
         started = time.monotonic()
 
-        async def attempt() -> ResponseT:
+        async def attempt() -> Any:
             try:
                 response = await self._client.post(path, content=body, headers=headers)
             except httpx.TimeoutException as exc:
@@ -154,17 +164,26 @@ class ToolClientBase:
             if response.status_code >= 400:
                 error_code = self._parse_error_code(response)
                 retryable = error_code in self._descriptor.retryable_error_codes
+                err_detail = response.text[:200]
                 raise ToolCallError(
                     error_code,
                     retryable,
-                    f"{self._descriptor.name} returned HTTP {response.status_code}",
+                    f"{self._descriptor.name} returned HTTP {response.status_code}: {err_detail}",
                 )
 
             try:
-                return response_model.model_validate_json(response.content)
+                if (
+                    response_model is dict
+                    or response_model is Any
+                    or (isinstance(response_model, type) and issubclass(response_model, dict))
+                ):
+                    return response.json()
+                if hasattr(response_model, "model_validate_json"):
+                    return response_model.model_validate_json(response.content)
+                return response.json()
             except Exception as exc:
                 raise ToolCallError(
-                    "INTERNAL_ERROR", False, "response failed schema validation"
+                    "INTERNAL_ERROR", False, f"response failed schema validation: {exc}"
                 ) from exc
 
         retrying: AsyncRetrying = AsyncRetrying(
@@ -175,7 +194,7 @@ class ToolClientBase:
         )
 
         try:
-            parsed: ResponseT = await retrying(attempt)
+            parsed: Any = await retrying(attempt)
         except ToolCallError as exc:
             duration_ms = int((time.monotonic() - started) * 1000)
             record = ToolCallRecord(
