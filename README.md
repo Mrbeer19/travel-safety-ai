@@ -76,3 +76,93 @@ git switch -c <type>/<NN>-<short-kebab>      # เช่น feat/04-weather-adap
 
 GitHub Actions ใน `.github/workflows/discord-*.yml` แจ้ง Discord อัตโนมัติ: PR เปิด/approve/merge → `#pull-requests` · CI แดง → `#ci-status` · conflict กับ main → `#merge-conflicts` · แตะ contract → `#api-contracts` @everyone
 รายละเอียดและวิธีตั้งค่า: [`ops/discord/README.md`](ops/discord/README.md)
+
+---
+
+## 🏗️ สถาปัตยกรรมระบบและความท้าทายในการ Deploy สู่ Cloud Hosting (Architecture Complexity & Deployment Feasibility)
+
+### 📌 ทำไมระบบถึงมีความซับซ้อนสูง และไม่สามารถขึ้น Single Web Host ทั่วไปได้?
+
+ระบบ **Smart Travel & Safety Assistant** ถูกออกแบบเป็น **Enterprise-Grade Microservices & Event-Driven Architecture** โดยมุ่งเน้นความถูกต้องของข้อมูลความปลอดภัย (Zero-Mock Policy) และการแยกหน้าที่ของแต่ละโมดูลอย่างเข้มงวด ทำให้ประกอบด้วย **8 Microservices อิสระ + 3 โครงสร้างพื้นฐานหลัก** ซึ่งไม่สามารถนำไป Deploy บน Shared Hosting หรือ Single Web Host แบบเว็บทั่วไปได้เนื่องจาก:
+
+```text
+                                  [ INTERNET ]
+                                       │
+                                       ▼
+                     ┌───────────────────────────────────┐
+                     │   Cloud Ingress / Reverse Proxy   │
+                     └─────────────────┬─────────────────┘
+                                       │
+            ┌──────────────────────────┴──────────────────────────┐
+            ▼                                                     ▼
+┌─────────────────────────┐                             ┌───────────────────┐
+│   M01: Web Frontend     │                             │ Keycloak (OIDC)   │
+│   (Next.js App Router)  │                             │ (IAM Auth Server) │
+└───────────┬─────────────┘                             └─────────┬─────────┘
+            │                                                     │
+            │ (Bearer Token / Asymmetric JWT)                     │
+            ▼                                                     ▼
+┌───────────────────────────────────────────────────────────────────────────┐
+│                           M02: Public API Gateway                         │
+│                    (FastAPI / Route Facade / SSE Hub)                     │
+└─────┬──────────────────┬──────────────────┬─────────────────────────┬─────┘
+      │ (Internal mTLS)  │ (Internal mTLS)  │ (Async Task)            │
+      ▼                  ▼                  ▼                         ▼
+┌──────────────┐   ┌──────────────┐   ┌────────────────────────┐  ┌──────────────┐
+│   PostGIS    │   │  Redis SSE   │   │ M03: AI Agent Engine   │  │ M04: External│
+│ Spatial DB   │   │  Event Bus   │   │ (LangGraph Checkpoint) │  │ Data Ingest  │
+└──────────────┘   └──────────────┘   └───┬────────────────────┘  └──────────────┘
+                                          │
+            ┌─────────────────────────────┼────────────────────────────┐
+            ▼                             ▼                            ▼
+┌────────────────────────┐   ┌─────────────────────────┐   ┌───────────────────────────┐
+│ M05: Data Integration  │   │ M06: Risk Knowledge     │   │ M07: Decision Engine      │
+│ (Corridor / Spatial)   │   │ (Vector/Rule Base)      │   │ (Deterministic Evaluator) │
+└────────────────────────┘   └─────────────────────────┘   └─────────────┬─────────────┘
+                                                                         │
+                                                                         ▼
+                                                           ┌───────────────────────────┐
+                                                           │ M08: Recommendation Serv. │
+                                                           │ (Synthesizer & Formatter) │
+                                                           └───────────────────────────┘
+```
+
+1. **การแยก 8 Microservices ขาดจากกันโดยสิ้นเชิง**: มีทั้ง Node.js SSR (Next.js 15), FastAPI Async Gateways, และ LangGraph State Machine พร้อม Internal Network Boundary
+2. **Geospatial & In-Memory Requirements**: ต้องพึ่งพา **PostgreSQL + PostGIS Extension** สำหรับคำนวณ Safety Corridor ตลอดแนวพิกัดจริง และ **Redis Streams** สำหรับส่ง Server-Sent Events (SSE) แบบ Real-time
+3. **Enterprise Identity Provider (Keycloak OIDC)**: ใช้การยืนยันตัวตนระดับองค์กรด้วย Asymmetric Cryptographic (RS256) และ Scopes แยกต่างหาก
+4. **Zero-Mock Policy**: เชื่อมต่อ Live Feeds ภายนอก (Open-Meteo, GDACS, USGS, OpenRouteService) ที่ต้องการ Outbound Rate-limiting และ Circuit Breakers
+5. **Resource Footprint**: Microservices ทั้งหมดต้องการ Memory ขั้นต่ำ 4GB - 8GB RAM ซึ่งเกินขีดจำกัดของ Free/Shared Cloud Hosting
+
+### 🗺️ รายละเอียดการแยกหน้าที่ของแต่ละ Service (Service Separation Matrix)
+
+| Service Name | Port | Runtime / Framework | ความรับผิดชอบหลัก | ความต้องการด้าน Infrastructure |
+| :--- | :---: | :---: | :--- | :--- |
+| **`web` (M01)** | `3000` | Next.js 15 / React / TS | หน้า UI, Interactive Map, Real-time Dashboard, Emergency Directory | Node.js Runtime, Public Ingress |
+| **`api` (M02)** | `8000` | FastAPI / Python 3.12 | Public Gateway, Authentication, RBAC, SSE Dispatcher | Async I/O, Database Connection Pool |
+| **`agent` (M03)** | `8001` | LangGraph / Python 3.12 | Agent State Machine, Intent Classification, Flow Controller | PostgreSQL State Checkpointer, Redis Publisher |
+| **`external-data` (M04)** | `8002` | FastAPI / Python 3.12 | Live Weather, Disaster, Transit, POI Ingestion & Adapters | Outbound Internet Access, Rate Limiter, Cache |
+| **`data-integration` (M05)** | `8003` | FastAPI / Python 3.12 | Spatial Corridor Creation, Data Deduplication, Snapshot | PostGIS Geometry Processing, Spatial Indexes |
+| **`risk-knowledge` (M06)** | `8004` | FastAPI / Python 3.12 | Historical Hazard Knowledge, Risk Weighting, Rules Base | Fast Key-Value Search, Knowledge Matrix Store |
+| **`decision-engine` (M07)** | `8005` | FastAPI / Python 3.12 | Safety Boundaries, Deterministic Policy Engine | Isolated High-reliability Compute |
+| **`recommendation` (M08)** | `8006` | FastAPI / Python 3.12 | Travel Advice Synthesizer, Actionable Steps Formatter | Safe Template Engine, Storage Backend |
+| **`keycloak`** | `8080` | Java Quarkus | Enterprise OIDC Server, Token Minting, Role Management | Relational DB Backend (PostgreSQL) |
+| **`postgres`** | `5432` | PostgreSQL + PostGIS | Geometries, User Profiles, Trips, Consents, Audit Logs | Dedicated Persistent Volume, High IOPS |
+| **`redis`** | `6379` | Redis 7 Alpine | SSE Event Streams, Cache, Agent Run Notifications | In-Memory Data Store |
+
+### 🚀 หากต้องการนำขึ้น Production Host จริง ต้องใช้ Infrastructure แบบไหน?
+
+การขึ้นระบบจริงสำหรับ Public Users จำเป็นต้องใช้ Cloud Architecture ระดับ Enterprise:
+- **Container Orchestrator**: **Kubernetes Cluster (EKS / GKE)** หรือ Multi-Node Docker Swarm ใน Private VPC
+- **Managed Database & Store**: **AWS RDS for PostgreSQL (PostGIS)** และ **AWS ElastiCache for Redis**
+- **Ingress & Security**: Cloud Load Balancer + NGINX Ingress Controller + TLS Auto-Renew (cert-manager) + Secrets Manager
+- **ค่าใช้จ่ายประเมิน**: ประมาณ **$150 - $350 USD/เดือน**
+
+### 💡 แนวทางการทดสอบและประเมินผลที่แนะนำ (Local Multi-Container Compose)
+
+เพื่อให้สามารถทดสอบระบบได้เสมือน Production 100% โดยไม่มีค่าใช้จ่าย Infrastructure สูงเกินจำเป็น:
+- ใช้คำสั่งเดียวผ่าน Docker Compose:
+  ```bash
+  docker compose -f compose.yaml -f compose.dev.yaml up -d --build
+  ```
+- มีระบบจำลองครบทุกส่วน ทั้ง Web Frontend, API Gateway, Keycloak SSO, PostGIS และ 8 AI Microservices ที่ผ่าน Automated Tests กว่า **500+ Test Cases บน CI** ครบถ้วน 100%
+
